@@ -25,6 +25,12 @@ services:
       - CHAOSPAY_FREEDOM_AUTO_WEBHOOK=${CHAOSPAY_FREEDOM_AUTO_WEBHOOK:-false}
       # URL hosted-формы (используется для редиректа после init_payment.php). В моке — наша же панель.
       - CHAOSPAY_FREEDOM_HOSTED_URL=${CHAOSPAY_FREEDOM_HOSTED_URL:-http://localhost:48532/panel?tab=cards}
+
+      # ----- Freedom Loyalty (mock /loyaltyservice/loyalty/frhcCompanyTransaction) -----
+      # Процент кешбека: cashbackAmount = amount * percent / 100.
+      - CHAOSPAY_LOYALTY_CASHBACK_PERCENT=${CHAOSPAY_LOYALTY_CASHBACK_PERCENT:-10}
+      # Фиксированный остаток баланса клиента во Freedom, который мок возвращает в ответе.
+      - CHAOSPAY_LOYALTY_CASHBACK_BALANCE=${CHAOSPAY_LOYALTY_CASHBACK_BALANCE:-10000}
     networks:
       - freedom-network
 

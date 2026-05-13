@@ -58,7 +58,7 @@ func main() {
 	})
 	walletCtrl := walletports.NewController(payService, scenarioService, requestLog)
 	qrCtrl := qrports.NewController(qrService, cfg.GlobalDelaySeconds)
-	loyaltyCtrl := loyalty.NewController(cfg.GlobalDelaySeconds)
+	loyaltyCtrl := loyalty.NewController(cfg.GlobalDelaySeconds, cfg.LoyaltyCashbackPercent, cfg.LoyaltyCashbackBalance)
 	panelCtrl := panel.NewController(payService, qrService, scenarioService, requestLog, cfg)
 
 	mux := http.NewServeMux()

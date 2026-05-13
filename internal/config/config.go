@@ -21,6 +21,10 @@ type Config struct {
 	// QR
 	QRWebhookURL string
 
+	// Loyalty (mock /loyaltyservice/loyalty/frhcCompanyTransaction)
+	LoyaltyCashbackPercent float32
+	LoyaltyCashbackBalance float32
+
 	// Общее
 	GlobalDelaySeconds int
 	ListenAddr         string
@@ -32,6 +36,8 @@ func Load() Config {
 	terminalID, _ := strconv.Atoi(envOrDefault("CHAOSPAY_FREEDOM_TERMINAL_ID", "1"))
 	autoWebhook, _ := strconv.ParseBool(envOrDefault("CHAOSPAY_FREEDOM_AUTO_WEBHOOK", "false"))
 	delay, _ := strconv.Atoi(envOrDefault("CHAOSPAY_DELAY_SECONDS", "0"))
+	loyaltyPercent, _ := strconv.ParseFloat(envOrDefault("CHAOSPAY_LOYALTY_CASHBACK_PERCENT", "10"), 32)
+	loyaltyBalance, _ := strconv.ParseFloat(envOrDefault("CHAOSPAY_LOYALTY_CASHBACK_BALANCE", "10000"), 32)
 
 	cfg := Config{
 		MerchantID: uint(merchantID),
@@ -43,8 +49,10 @@ func Load() Config {
 		AutoWebhook:        autoWebhook,
 		HostedFormURL:      envOrDefault("CHAOSPAY_FREEDOM_HOSTED_URL", "http://localhost:48532/panel?tab=cards"),
 		QRWebhookURL:       envOrDefault("PG_WEBHOOK_URL", "http://payment-gateway-go-nginx:80/api/v1/payment-gateway/webhook/freedom-qr"),
-		GlobalDelaySeconds: delay,
-		ListenAddr:         envOrDefault("CHAOSPAY_LISTEN_ADDR", ":8532"),
+		LoyaltyCashbackPercent: float32(loyaltyPercent),
+		LoyaltyCashbackBalance: float32(loyaltyBalance),
+		GlobalDelaySeconds:     delay,
+		ListenAddr:             envOrDefault("CHAOSPAY_LISTEN_ADDR", ":8532"),
 	}
 
 	log.Printf("[CONFIG] merchant_id=%d terminal_id=%d auto_webhook=%v pay_webhook=%s qr_webhook=%s",
