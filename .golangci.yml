@@ -1,0 +1,30 @@
+version: "2"
+
+run:
+  timeout: 5m
+  tests: false
+
+linters:
+  default: standard
+  settings:
+    errcheck:
+      # fmt.Fprint*/io.WriteString в HTML-рендере панели: ошибка от ResponseWriter
+      # всё равно не обрабатывается (клиент отвалился — пусть отваливается).
+      # Закрывание тел запросов также не критично — defer-ы и так стоят.
+      exclude-functions:
+        - fmt.Fprint
+        - fmt.Fprintf
+        - fmt.Fprintln
+        - io.WriteString
+        - (io.Closer).Close
+        - (*os.File).Close
+        - (net/http.ResponseWriter).Write
+
+issues:
+  max-issues-per-linter: 0
+  max-same-issues: 0
+
+formatters:
+  enable:
+    - gofmt
+    - goimports

@@ -1,0 +1,31 @@
+http://localhost:48532/panel
+
+Quick start (что делать дальше)
+
+# 1. Мок уже запущен. Открой панель
+open http://localhost:48532/panel
+
+# 2. В .env локального PG (<your-payment-gateway-project>/.env) добавь:
+FREEDOM_PAY_HOST=http://chaospay:8532
+FREEDOM_PAY_CUSTOMER_HOST=http://chaospay:8532
+
+# 3. Создай тестовый Freedom-терминал в БД PG (внутри контейнера PG)
+docker exec -it payment-gateway-backend \
+  ./payment-gateway terminal freedom \
+    --terminalID=1 \
+    --merchantID=100001 \
+    --merchantSecret=mock-secret-key
+
+# 4. Пересобери и перезапусти PG (правки в pkg/freedompay/freedompay.go и initialize.go нужно подхватить)
+cd your-payment-gateway-project
+docker compose build payment-gateway-go-backend
+docker compose up -d
+
+# 5. Проверь связь
+docker exec payment-gateway-backend wget -qO- http://chaospay:8532/health
+# → OK
+
+# 6. Триггерни оплату в rahmet-app/postman → записи появятся в /panel?tab=cards
+Для воспроизведения EX-1001 — нажми ⚡ Reproduce EX-1001 в /panel?tab=scenarios, триггерни оплату, смотри docker logs payment-gateway-go-backend | grep "recovered payment from false fail".
+
+Если что-то не работает — пройдись по docs/setup.md#troubleshooting, там разобраны частые проблемы (конфликт портов, расхождение секретов, PG не подхватил ENV).

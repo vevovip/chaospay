@@ -1,0 +1,39 @@
+# Binaries
+/mock-bank
+/chaospay
+*.exe
+*.test
+*.prof
+
+# Build artifacts
+/build/
+/dist/
+/out/
+/bin/
+
+# Go build/test cache
+.gocache/
+coverage.out
+coverage.html
+vendor/
+
+# Editor/IDE
+.idea/
+.vscode/
+*.swp
+.DS_Store
+
+# Env files (могут содержать секреты)
+.env
+.env.local
+.env.*.local
+
+# Logs
+*.log
+
+# Temporary / workspace notes (НЕ для публикации)
+/tmp/
+/temp/
+
+# Integration test artifacts (build output вне модуля)
+/tests/integration/runner

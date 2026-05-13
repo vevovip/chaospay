@@ -1,0 +1,34 @@
+services:
+  chaospay:
+    build: .
+    container_name: chaospay
+    ports:
+      - "48532:8532"
+    environment:
+      # Глобальная задержка ответов (в секундах) для имитации тормозов банка.
+      - CHAOSPAY_DELAY_SECONDS=${CHAOSPAY_DELAY_SECONDS:-0}
+
+      # ----- QR-PAY -----
+      - PG_WEBHOOK_URL=${PG_WEBHOOK_URL:-http://payment-gateway-go-nginx:80/api/v1/payment-gateway/webhook/freedom-qr}
+
+      # ----- Freedom Pay (карточные) -----
+      # Webhook PG для оплат
+      - PG_FREEDOM_PAY_WEBHOOK_URL=${PG_FREEDOM_PAY_WEBHOOK_URL:-http://payment-gateway-go-nginx:80/api/v1/payment-gateway/webhook/freedompay}
+      # Webhook PG для bind-карты
+      - PG_FREEDOM_PAY_CARD_WEBHOOK_URL=${PG_FREEDOM_PAY_CARD_WEBHOOK_URL:-http://payment-gateway-go-nginx:80/api/v1/payment-gateway/webhook/freedompay/card}
+      # Эти значения должны совпадать с теми, что прописаны в БД PG для тестового Freedom-терминала.
+      - CHAOSPAY_FREEDOM_MERCHANT_ID=${CHAOSPAY_FREEDOM_MERCHANT_ID:-100001}
+      - CHAOSPAY_FREEDOM_SECRET=${CHAOSPAY_FREEDOM_SECRET:-mock-secret-key}
+      - CHAOSPAY_FREEDOM_TERMINAL_ID=${CHAOSPAY_FREEDOM_TERMINAL_ID:-1}
+      # Если true — мок автоматически шлёт webhook на каждый переход в Authorized/Captured/...
+      # По умолчанию false — webhook отправляется кнопкой Send Webhook из панели.
+      - CHAOSPAY_FREEDOM_AUTO_WEBHOOK=${CHAOSPAY_FREEDOM_AUTO_WEBHOOK:-false}
+      # URL hosted-формы (используется для редиректа после init_payment.php). В моке — наша же панель.
+      - CHAOSPAY_FREEDOM_HOSTED_URL=${CHAOSPAY_FREEDOM_HOSTED_URL:-http://localhost:48532/panel?tab=cards}
+    networks:
+      - freedom-network
+
+networks:
+  freedom-network:
+    external: true
+    name: dockernet-local
