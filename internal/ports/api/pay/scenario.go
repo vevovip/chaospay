@@ -2,7 +2,9 @@ package pay
 
 import (
 	"fmt"
+	"log"
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/vevovip/chaospay/internal/domain/requestlog"
@@ -13,7 +15,7 @@ import (
 
 // applyScenarioBefore — для сценариев, не нуждающихся в нормальном handler-выполнении.
 // Возвращает true, если ответ уже отправлен.
-func (c *Controller) applyScenarioBefore(w http.ResponseWriter, sc *scenario.Scenario, responseScriptName string, entry *requestlog.Entry, started time.Time) bool {
+func (c *Controller) applyScenarioBefore(w http.ResponseWriter, sc *scenario.Scenario, req *freedompay.ParsedRequest, responseScriptName string, entry *requestlog.Entry, started time.Time) bool {
 	// Transport-level: применимо ко всем endpoint-ам.
 	if scenarioapply.Transport(w, sc, entry, started, c.log) {
 		return true
@@ -53,6 +55,33 @@ func (c *Controller) applyScenarioBefore(w http.ResponseWriter, sc *scenario.Sce
 		entry.DurationMS = time.Since(started).Milliseconds()
 		c.log.Add(entry)
 		writeXML(w, body)
+		return true
+
+	case scenario.ActionSyncErrorAsyncWebhook:
+		errMsg := scenario.Param(sc, "message", "Неверный статус платежа")
+		errCode := scenario.Param(sc, "error_code", "120")
+		fields := freedompay.OrdMap{}
+		fields = fields.Set("pg_status", "error")
+		fields = fields.Set("pg_error_code", errCode)
+		fields = fields.Set("pg_error_description", errMsg)
+		body := signedXML("response", responseScriptName, fields, c.cfg.Secret)
+		entry.StatusCode = http.StatusOK
+		entry.ResponseBody = requestlog.Truncate(body, 4000)
+		entry.DurationMS = time.Since(started).Milliseconds()
+		c.log.Add(entry)
+		writeXML(w, body)
+
+		// Параллельно холдируем платёж и шлём success-webhook (EX-1001: банк "молча списал").
+		paymentIDStr := req.Get("pg_payment_id", "")
+		if paymentIDStr != "" {
+			if id, err := strconv.ParseUint(paymentIDStr, 10, 64); err == nil && id > 0 {
+				go func(pid uint) {
+					if _, holdErr := c.svc.Hold(pid); holdErr != nil {
+						log.Printf("[PAY sync_error_async_webhook] hold(%d) failed: %v", pid, holdErr)
+					}
+				}(uint(id))
+			}
+		}
 		return true
 	}
 	return false

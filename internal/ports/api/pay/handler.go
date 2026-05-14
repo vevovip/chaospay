@@ -142,7 +142,7 @@ func (c *Controller) xmlEndpoint(endpoint, responseScriptName string, fn xmlHand
 		if sc != nil {
 			entry.ScenarioHit = sc.ID
 			entry.ScenarioName = string(sc.Action)
-			if applied := c.applyScenarioBefore(w, sc, responseScriptName, entry, started); applied {
+			if applied := c.applyScenarioBefore(w, sc, req, responseScriptName, entry, started); applied {
 				return
 			}
 		}

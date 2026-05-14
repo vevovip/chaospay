@@ -20,6 +20,10 @@ const (
 	ActionPartialAmount    Action = "partial_amount"
 	ActionDelay            Action = "delay"
 	ActionForceFailure     Action = "force_failure"
+	// ActionSyncErrorAsyncWebhook — EX-1001: банк отвечает синхронно ошибкой (pg_status=error),
+	// но при этом параллельно холдирует платёж и асинхронно шлёт success-webhook (pg_result=1).
+	// Параметры: error_code (по умолч. "120"), message (по умолч. "Неверный статус платежа").
+	ActionSyncErrorAsyncWebhook Action = "sync_error_async_webhook"
 	// Transport-level: моделируют сетевые/протокольные сбои до того, как PG распарсит ответ.
 	ActionConnectionReset Action = "connection_reset" // мгновенный TCP-reset без ответа
 	ActionEmptyResponse   Action = "empty_response"   // 200 OK, тело пустое
@@ -53,6 +57,7 @@ var AllActions = []Action{
 	ActionInvalidSignature,
 	ActionPartialAmount,
 	ActionForceFailure,
+	ActionSyncErrorAsyncWebhook,
 	ActionConnectionReset,
 	ActionEmptyResponse,
 	ActionMalformedBody,
