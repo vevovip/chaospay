@@ -117,7 +117,7 @@ Curl-примеры и каталог пресетов — в [docs/errors-playb
 - Application sevice принимает Store-интерфейс, не конкретный memstore.
 - Webhook-клиенты — отдельные адаптеры в [internal/infrastructure/pgclient/](internal/infrastructure/pgclient/).
 - При добавлении нового endpoint в `pay/handler.go::Register` — НЕ забывай прописать его в `domain/scenario/scenario.go::AllEndpoints`, иначе matcher не подскажет его в UI.
-- Подпись ответа: `responseScriptName` в `xmlEndpoint(...)` может отличаться от incoming endpoint — это нормально (PG SDK ожидает script name из `*Response.GetScriptName()`).
+- Подпись ответа: `responseScriptName` в `xmlEndpoint(...)` должен совпадать со `scriptName` команды PG SDK (см. `commands/<op>/command.go: ScriptName`). PG валидирует ответ через `command.GetScriptName()`, а не через `Response.GetScriptName()` — поэтому пустая строка приведёт к `invalid signature` (актуально для `init`/`direct`).
 - Все новые сценарные actions — обязательно в `AllActions` (для UI dropdown).
 
 ## Документация

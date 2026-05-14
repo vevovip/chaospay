@@ -45,9 +45,9 @@ func NewController(svc *apppay.Service, scenarios *appscenario.Service, log *mem
 // Register регистрирует все Freedom Pay XML routes.
 func (c *Controller) Register(mux *http.ServeMux) {
 	mux.HandleFunc("POST /v1/merchant/{merchantID}/card/init",
-		c.xmlEndpoint("init", "", c.handleHoldInit))
+		c.xmlEndpoint("init", "init", c.handleHoldInit))
 	mux.HandleFunc("POST /v1/merchant/{merchantID}/card/direct",
-		c.xmlEndpoint("direct", "", c.handleHold))
+		c.xmlEndpoint("direct", "direct", c.handleHold))
 
 	mux.HandleFunc("POST /get_status3.php",
 		c.xmlEndpoint("get_status3.php", "get_status3.php", c.handleStatus))
