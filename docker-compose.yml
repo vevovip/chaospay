@@ -26,6 +26,19 @@ services:
       # URL hosted-формы (используется для редиректа после init_payment.php). В моке — наша же панель.
       - CHAOSPAY_FREEDOM_HOSTED_URL=${CHAOSPAY_FREEDOM_HOSTED_URL:-http://localhost:48532/panel?tab=cards}
 
+      # ----- Halyk Epay v2 -----
+      # OAuth client (любая из тестовых пар Halyk: test/test1/test2/test3).
+      - CHAOSPAY_EPAY_CLIENT_ID=${CHAOSPAY_EPAY_CLIENT_ID:-test}
+      - CHAOSPAY_EPAY_CLIENT_SECRET=${CHAOSPAY_EPAY_CLIENT_SECRET:-yF587AV9Ms94qN2QShFzVR3vFnWkhjbAK3sG}
+      # UUID терминала (должен совпадать с конфигом терминала Epay v2 в БД PG).
+      - CHAOSPAY_EPAY_TERMINAL_UUID=${CHAOSPAY_EPAY_TERMINAL_UUID:-67e34d63-102f-4bd1-898e-370781d0074d}
+      # Postlink URLs PG. По умолчанию — пути из real PG epay-v2 webhook controller.
+      - PG_EPAY_POSTLINK_URL=${PG_EPAY_POSTLINK_URL:-http://payment-gateway-go-nginx:80/api/v1/payment-gateway/webhook/epay_v2/postlink}
+      - PG_EPAY_FAILURE_POSTLINK_URL=${PG_EPAY_FAILURE_POSTLINK_URL:-http://payment-gateway-go-nginx:80/api/v1/payment-gateway/webhook/epay_v2/failure_postlink}
+      - PG_EPAY_BIND_POSTLINK_URL=${PG_EPAY_BIND_POSTLINK_URL:-http://payment-gateway-go-nginx:80/api/v1/payment-gateway/webhook/epay/postlink/bind}
+      # Если true — мок автоматически шлёт postlink после успешного charge/cancel/refund.
+      - CHAOSPAY_EPAY_AUTO_WEBHOOK=${CHAOSPAY_EPAY_AUTO_WEBHOOK:-false}
+
       # ----- Freedom Loyalty (mock /loyaltyservice/loyalty/frhcCompanyTransaction) -----
       # Процент кешбека: cashbackAmount = amount * percent / 100.
       - CHAOSPAY_LOYALTY_CASHBACK_PERCENT=${CHAOSPAY_LOYALTY_CASHBACK_PERCENT:-10}

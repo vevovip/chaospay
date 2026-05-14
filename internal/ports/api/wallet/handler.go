@@ -13,6 +13,7 @@ import (
 
 	apppay "github.com/vevovip/chaospay/internal/application/pay"
 	appscenario "github.com/vevovip/chaospay/internal/application/scenario"
+	"github.com/vevovip/chaospay/internal/domain/bank"
 	domainpay "github.com/vevovip/chaospay/internal/domain/pay"
 	"github.com/vevovip/chaospay/internal/domain/requestlog"
 	"github.com/vevovip/chaospay/internal/domain/scenario"
@@ -42,7 +43,7 @@ func (c *Controller) handlePay(w http.ResponseWriter, r *http.Request) {
 	paymentIDStr := r.PathValue("paymentID")
 	paymentID, parseErr := strconv.ParseUint(paymentIDStr, 10, 64)
 
-	entry := &requestlog.Entry{Method: r.Method, URL: r.URL.Path, PaymentID: paymentIDStr}
+	entry := &requestlog.Entry{Method: r.Method, URL: r.URL.Path, PaymentID: paymentIDStr, Bank: bank.Freedom}
 
 	bodyBytes, _ := io.ReadAll(r.Body)
 	_ = r.Body.Close()
@@ -70,6 +71,7 @@ func (c *Controller) handlePay(w http.ResponseWriter, r *http.Request) {
 	entry.MerchantID = strconv.FormatUint(uint64(rec.MerchantID), 10)
 
 	sc := c.scenarios.Match(scenario.MatchInput{
+		Bank:       bank.Freedom,
 		Endpoint:   entry.Endpoint,
 		PaymentID:  paymentIDStr,
 		OrderID:    entry.OrderID,

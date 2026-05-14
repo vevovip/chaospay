@@ -4,6 +4,7 @@ package scenario
 import (
 	"time"
 
+	"github.com/vevovip/chaospay/internal/domain/bank"
 	"github.com/vevovip/chaospay/internal/domain/scenario"
 )
 
@@ -47,6 +48,7 @@ func (s *Service) Match(in scenario.MatchInput) *scenario.Scenario { return s.st
 // PresetInfo — описание одного preset-а для UI.
 type PresetInfo struct {
 	Name        string
+	Bank        bank.Bank // к какому банку относится preset (для фильтра в UI).
 	Title       string
 	Description string
 	// Sample — пример ответа банка в этом сценарии. Раскрывается в UI через <details>,
@@ -55,13 +57,28 @@ type PresetInfo struct {
 	Sample string
 }
 
+// PresetsFor возвращает пресеты, относящиеся к выбранному банку.
+// bank.Any → все пресеты.
+func PresetsFor(b bank.Bank) []PresetInfo {
+	if b == bank.Any {
+		return AllPresets
+	}
+	out := make([]PresetInfo, 0, len(AllPresets))
+	for _, p := range AllPresets {
+		if p.Bank == b || p.Bank == bank.Any {
+			out = append(out, p)
+		}
+	}
+	return out
+}
+
 // AllPresets — список всех доступных preset-ов для рендера в panel.
 // Бизнес-пресеты используют РЕАЛЬНЫЕ Freedom error codes из PG-маппинга
 // ([internal/infrastructure/clients/payments/freedom/error_mapping.go]).
 // Каждый код триггерит конкретную domain-ошибку PG (common.Err*).
 var AllPresets = []PresetInfo{
 	{
-		Name: "ex1001", Title: "⚡ EX-1001",
+		Name: "ex1001", Bank: bank.Freedom, Title: "⚡ EX-1001",
 		Description: "Ambiguous Hold → recovery success на next get_status3",
 		Sample: `# Шаг 1: на direct мок отдаёт ambiguous-ошибку (Hold)
 <response>
@@ -82,7 +99,7 @@ var AllPresets = []PresetInfo{
 # PG-лог: "reconciliation: recovered payment from false fail"`,
 	},
 	{
-		Name: "hold_pending_recovery", Title: "🔄 Hold pending → recovery",
+		Name: "hold_pending_recovery", Bank: bank.Freedom, Title: "🔄 Hold pending → recovery",
 		Description: "Hold вернул pg_payment_status=process → PG авто-Status → success (без ambiguous-marker)",
 		Sample: `# Шаг 1: direct отдаёт ok-ответ, но pg_payment_status=process (pending)
 <response>
@@ -106,7 +123,7 @@ var AllPresets = []PresetInfo{
 # Отличие от EX-1001: тут НЕ ambiguous-error, а штатный pending → recovery flow.`,
 	},
 	{
-		Name: "capture_failed_status_approved", Title: "💰 Capture failed → Status approved",
+		Name: "capture_failed_status_approved", Bank: bank.Freedom, Title: "💰 Capture failed → Status approved",
 		Description: "do_capture.php отвечает ошибкой, но Status подтверждает: 'банк всё-таки списал'",
 		Sample: `# Production-кейс: 'деньги списались, но PG думает Capture не прошёл'.
 # PG в merchant.go:411-421 при ошибке Capture сам проверяет Status — если success, принимает.
@@ -130,7 +147,7 @@ var AllPresets = []PresetInfo{
 # Результат: PG принимает Capture, транзакция → Captured.`,
 	},
 	{
-		Name: "cancel_failed_status_revoked", Title: "🚫 Cancel failed → Status revoked",
+		Name: "cancel_failed_status_revoked", Bank: bank.Freedom, Title: "🚫 Cancel failed → Status revoked",
 		Description: "cancel.php отвечает ошибкой, но Status: 'отмена прошла на банке'",
 		Sample: `# PG в merchant.go:457-469 при ошибке Cancel проверяет Status.
 
@@ -153,7 +170,7 @@ var AllPresets = []PresetInfo{
 # Результат: PG принимает Cancel.`,
 	},
 	{
-		Name: "revoke_failed_status_revoked", Title: "↩ Revoke failed → Status revoked",
+		Name: "revoke_failed_status_revoked", Bank: bank.Freedom, Title: "↩ Revoke failed → Status revoked",
 		Description: "revoke.php (refund) отвечает ошибкой, но Status: 'возврат на банке прошёл'",
 		Sample: `# PG в merchant.go:520-532 при ошибке Revoke проверяет Status.
 
@@ -176,7 +193,7 @@ var AllPresets = []PresetInfo{
 # Результат: PG принимает Refund.`,
 	},
 	{
-		Name: "hold_timeout", Title: "Hold Timeout",
+		Name: "hold_timeout", Bank: bank.Freedom, Title: "Hold Timeout",
 		Description: "Таймаут на direct (20s)",
 		Sample: `# Соединение зависает на 20 секунд, потом мок закрывает TCP без ответа.
 # PG увидит:
@@ -184,7 +201,7 @@ Post "https://api.freedompay.kz/v1/merchant/.../card/direct": net/http: request 
 (Client.Timeout exceeded while awaiting headers)`,
 	},
 	{
-		Name: "desync", Title: "Desync",
+		Name: "desync", Bank: bank.Freedom, Title: "Desync",
 		Description: "Fatal failure на direct без ambiguous-marker",
 		Sample: `# Мок отдаёт фатальную ошибку (не подпадает под ambiguous-маркеры PG).
 # PG-транзакция уходит в Failed, recovery не срабатывает.
@@ -200,7 +217,7 @@ Post "https://api.freedompay.kz/v1/merchant/.../card/direct": net/http: request 
 	},
 
 	{
-		Name: "init_retry_exhausted", Title: "🌐 Init retry-exhausted",
+		Name: "init_retry_exhausted", Bank: bank.Freedom, Title: "🌐 Init retry-exhausted",
 		Description: "3× timeout на init_payment.php (PG: giving up after 3 attempt(s))",
 		Sample: `# Каждая попытка PG: 15s ожидания → TCP close без ответа.
 # После 3 retry hashicorp/go-retryablehttp сдаётся.
@@ -210,7 +227,7 @@ giving up after 3 attempt(s): Post "...": net/http: request canceled while waiti
 (Client.Timeout exceeded while awaiting headers)`,
 	},
 	{
-		Name: "hold_init_retry_exhausted", Title: "🌐 HoldInit retry-exhausted",
+		Name: "hold_init_retry_exhausted", Bank: bank.Freedom, Title: "🌐 HoldInit retry-exhausted",
 		Description: "3× timeout на /v1/merchant/.../card/init",
 		Sample: `# То же что init_retry_exhausted, но на эндпоинте создания Hold.
 # PG-лог:
@@ -218,7 +235,7 @@ giving up after 3 attempt(s): Post "...": net/http: request canceled while waiti
 POST https://api.freedompay.kz/v1/merchant/554415/card/init giving up after 3 attempt(s)`,
 	},
 	{
-		Name: "wallet_retry_exhausted", Title: "🌐 Wallet retry-exhausted",
+		Name: "wallet_retry_exhausted", Bank: bank.Freedom, Title: "🌐 Wallet retry-exhausted",
 		Description: "3× timeout на applepay/googlepay",
 		Sample: `# PG-клиент wallet (Apple/Google Pay) исчерпал retry.
 # PG-лог:
@@ -226,7 +243,7 @@ POST https://api.freedompay.kz/v1/merchant/554415/card/init giving up after 3 at
 giving up after 3 attempt(s): Post "...": context deadline exceeded`,
 	},
 	{
-		Name: "context_deadline", Title: "⏱ Context deadline",
+		Name: "context_deadline", Bank: bank.Freedom, Title: "⏱ Context deadline",
 		Description: "60s timeout — клиент PG отвалится по context.deadline",
 		Sample: `# Мок засыпает на 60s — гарантированно дольше любого PG context.WithTimeout.
 # PG-лог:
@@ -236,7 +253,7 @@ giving up after 3 attempt(s): Post "...": context deadline exceeded`,
 	// Бизнес-ошибки — коды соответствуют PG error_mapping.go (один-в-один с тем,
 	// что real Freedom возвращает в проде). Каждый триггерит свой common.Err*.
 	{
-		Name: "insufficient_funds", Title: "💸 Insufficient funds",
+		Name: "insufficient_funds", Bank: bank.Freedom, Title: "💸 Insufficient funds",
 		Description: "Freedom code=10009 → ErrNotEnoughMoney → 'недостаточно средств на карте'",
 		Sample: `<response>
   <pg_status>error</pg_status>
@@ -248,7 +265,7 @@ giving up after 3 attempt(s): Post "...": context deadline exceeded`,
 # Также триггерится кодами: 11006, 8888, 100091, 100094`,
 	},
 	{
-		Name: "card_declined", Title: "🚫 Declined by issuer",
+		Name: "card_declined", Bank: bank.Freedom, Title: "🚫 Declined by issuer",
 		Description: "Freedom code=10007 → ErrDeclinedByIssuer → 'оплата отклонена банком'",
 		Sample: `<response>
   <pg_status>error</pg_status>
@@ -260,7 +277,7 @@ giving up after 3 attempt(s): Post "...": context deadline exceeded`,
 # 11024, 11028, 11036, 100101, 10045, 100384, 13713, 100403`,
 	},
 	{
-		Name: "card_data_input", Title: "🪪 Wrong card data",
+		Name: "card_data_input", Bank: bank.Freedom, Title: "🪪 Wrong card data",
 		Description: "Freedom code=10005 → ErrCardDataInput → 'введены неверные данные'",
 		Sample: `<response>
   <pg_status>error</pg_status>
@@ -271,7 +288,7 @@ giving up after 3 attempt(s): Post "...": context deadline exceeded`,
 # Альтернативы: 10008, 10031, 10032, 11004, 11050, 11062, 11063, 11065, 110501, 100056`,
 	},
 	{
-		Name: "expired_card", Title: "📅 Expired card",
+		Name: "expired_card", Bank: bank.Freedom, Title: "📅 Expired card",
 		Description: "Freedom code=10017 → ErrCardExpired → 'срок действия карты истек'",
 		Sample: `<response>
   <pg_status>error</pg_status>
@@ -282,7 +299,7 @@ giving up after 3 attempt(s): Post "...": context deadline exceeded`,
 # Альтернативы: 9901, 100171`,
 	},
 	{
-		Name: "3ds_failed", Title: "🔐 3DS failed",
+		Name: "3ds_failed", Bank: bank.Freedom, Title: "🔐 3DS failed",
 		Description: "Freedom code=10004 → Err3DSFail → '3DS проверка не пройдена'",
 		Sample: `<response>
   <pg_status>error</pg_status>
@@ -293,7 +310,7 @@ giving up after 3 attempt(s): Post "...": context deadline exceeded`,
 # Альтернативы: 11037, 11053, 8889, 10042, 110100`,
 	},
 	{
-		Name: "limit_exceeded", Title: "📈 Card limit exceeded",
+		Name: "limit_exceeded", Bank: bank.Freedom, Title: "📈 Card limit exceeded",
 		Description: "Freedom code=10006 → ErrCardLimitationsExceeded → 'превышен лимит по карте'",
 		Sample: `<response>
   <pg_status>error</pg_status>
@@ -304,7 +321,7 @@ giving up after 3 attempt(s): Post "...": context deadline exceeded`,
 # Альтернативы: 11027, 11051, 100066, 1000661, 100228, 1000669`,
 	},
 	{
-		Name: "code_limit_exceeded", Title: "🔢 PIN attempts exceeded",
+		Name: "code_limit_exceeded", Bank: bank.Freedom, Title: "🔢 PIN attempts exceeded",
 		Description: "Freedom code=10003 → ErrCodeLimit → 'превышен лимит попыток ввода кода'",
 		Sample: `<response>
   <pg_status>error</pg_status>
@@ -315,7 +332,7 @@ giving up after 3 attempt(s): Post "...": context deadline exceeded`,
 # Альтернативы: 11002, 11007, 11008, 11010`,
 	},
 	{
-		Name: "emitter_error", Title: "🏦 Emitter error",
+		Name: "emitter_error", Bank: bank.Freedom, Title: "🏦 Emitter error",
 		Description: "Freedom code=10001 → ErrEmitter → 'ошибка на стороне эмитента'",
 		Sample: `<response>
   <pg_status>error</pg_status>
@@ -326,7 +343,7 @@ giving up after 3 attempt(s): Post "...": context deadline exceeded`,
 # Альтернативы: 101156, 999993`,
 	},
 	{
-		Name: "country_not_supported", Title: "🌍 Country not supported",
+		Name: "country_not_supported", Bank: bank.Freedom, Title: "🌍 Country not supported",
 		Description: "Freedom code=10013 → ErrCountryNotSupported → 'карта данной страны не разрешена'",
 		Sample: `<response>
   <pg_status>error</pg_status>
@@ -337,7 +354,7 @@ giving up after 3 attempt(s): Post "...": context deadline exceeded`,
 # Альтернатива: 11055`,
 	},
 	{
-		Name: "transaction_amount_zero", Title: "0️⃣ Zero amount",
+		Name: "transaction_amount_zero", Bank: bank.Freedom, Title: "0️⃣ Zero amount",
 		Description: "Freedom code=11016 → ErrTransactionAmountIsZero → 'сумма транзакции равна нулю'",
 		Sample: `<response>
   <pg_status>error</pg_status>
@@ -346,7 +363,7 @@ giving up after 3 attempt(s): Post "...": context deadline exceeded`,
 </response>`,
 	},
 	{
-		Name: "unknown_bank_error", Title: "❓ Unknown bank error",
+		Name: "unknown_bank_error", Bank: bank.Freedom, Title: "❓ Unknown bank error",
 		Description: "Freedom code=9992 → ErrUnknown → 'не ожидаемая ошибка, поддержка'",
 		Sample: `<response>
   <pg_status>error</pg_status>
@@ -358,7 +375,7 @@ giving up after 3 attempt(s): Post "...": context deadline exceeded`,
 # 10020, 10021, 10025, 10026, 10028, 10029, 10030, 11000, 11001, 11009`,
 	},
 	{
-		Name: "default_bank_error", Title: "🤷 Unmapped code",
+		Name: "default_bank_error", Bank: bank.Freedom, Title: "🤷 Unmapped code",
 		Description: "Freedom code=99999 (отсутствует в маппинге) → ErrDefault → 'обратитесь в банк'",
 		Sample: `<response>
   <pg_status>error</pg_status>
@@ -371,7 +388,7 @@ giving up after 3 attempt(s): Post "...": context deadline exceeded`,
 	},
 
 	{
-		Name: "wallet_empty_response", Title: "📭 Wallet empty body",
+		Name: "wallet_empty_response", Bank: bank.Freedom, Title: "📭 Wallet empty body",
 		Description: "Applepay/Googlepay вернул 200 OK с пустым body",
 		Sample: `HTTP/1.1 200 OK
 Content-Length: 0
@@ -379,7 +396,7 @@ Content-Length: 0
 (пустое тело — клиент PG получит unexpected EOF при парсинге JSON)`,
 	},
 	{
-		Name: "wallet_malformed", Title: "💥 Wallet malformed",
+		Name: "wallet_malformed", Bank: bank.Freedom, Title: "💥 Wallet malformed",
 		Description: "Applepay/Googlepay вернул битый JSON",
 		Sample: `HTTP/1.1 200 OK
 Content-Type: application/json
@@ -389,7 +406,7 @@ Content-Type: application/json
 # json.Decoder PG упадёт с "unexpected end of JSON input"`,
 	},
 	{
-		Name: "init_malformed_xml", Title: "💥 Init malformed XML",
+		Name: "init_malformed_xml", Bank: bank.Freedom, Title: "💥 Init malformed XML",
 		Description: "init_payment.php вернул мусор вместо XML",
 		Sample: `HTTP/1.1 200 OK
 Content-Type: application/xml; charset=utf-8
@@ -399,7 +416,7 @@ Content-Type: application/xml; charset=utf-8
 # encoding/xml PG упадёт с syntax error`,
 	},
 	{
-		Name: "slow_body_capture", Title: "🐌 Slow body capture",
+		Name: "slow_body_capture", Bank: bank.Freedom, Title: "🐌 Slow body capture",
 		Description: "do_capture.php — байт-в-секунду (Read timeout)",
 		Sample: `HTTP/1.1 200 OK
 Content-Type: application/xml; charset=utf-8
@@ -411,7 +428,7 @@ Content-Type: application/xml; charset=utf-8
 	},
 
 	{
-		Name: "wrong_payment_id", Title: "🔀 Wrong payment_id",
+		Name: "wrong_payment_id", Bank: bank.Freedom, Title: "🔀 Wrong payment_id",
 		Description: "Hold ответ с чужим pg_payment_id",
 		Sample: `<response>
   <pg_status>ok</pg_status>
@@ -423,7 +440,7 @@ Content-Type: application/xml; charset=utf-8
 # Тест валидации соответствия запрос↔ответ на стороне PG.`,
 	},
 	{
-		Name: "missing_signature", Title: "🚧 Missing pg_sig",
+		Name: "missing_signature", Bank: bank.Freedom, Title: "🚧 Missing pg_sig",
 		Description: "Hold ответ без подписи",
 		Sample: `<response>
   <pg_status>ok</pg_status>
@@ -435,8 +452,234 @@ Content-Type: application/xml; charset=utf-8
 
 # PG должен отклонить ответ из-за невалидной подписи.`,
 	},
+	// ===== Halyk Epay v2 presets =====
 	{
-		Name: "wrong_amount", Title: "💱 Wrong amount",
+		Name: "epay_insufficient_funds", Bank: bank.Epay, Title: "💸 Epay: Insufficient funds",
+		Description: "Halyk reasonCode=484 → PG ErrNotEnoughMoney",
+		Sample: `HTTP/1.1 400 Bad Request
+Content-Type: application/json
+
+{"code":484,"message":"Insufficient funds","resultCode":484}
+
+# PG-классификация: reasonCode 484 → ErrNotEnoughMoney → "недостаточно средств"`,
+	},
+	{
+		Name: "epay_card_expired", Bank: bank.Epay, Title: "📅 Epay: Expired card",
+		Description: "Halyk reasonCode=478 → PG ErrCardExpired",
+		Sample: `{"code":478,"message":"Card expired","resultCode":478}
+
+# Альтернатива: reasonCode=485 (та же категория).`,
+	},
+	{
+		Name: "epay_invalid_card", Bank: bank.Epay, Title: "🪪 Epay: Invalid card data",
+		Description: "Halyk reasonCode=457 → PG ErrCardDataInput",
+		Sample: `{"code":457,"message":"Invalid card data","resultCode":457}
+
+# Альтернативы: 492, 473, 499, 469, 471, 472, 501.`,
+	},
+	{
+		Name: "epay_declined_by_issuer", Bank: bank.Epay, Title: "🚫 Epay: Declined by issuer",
+		Description: "Halyk reasonCode=455 → PG ErrDeclinedByIssuer",
+		Sample: `{"code":455,"message":"Declined by issuer","resultCode":455}
+
+# Альтернативы: 456, 462, 463, 466, 468, 487, 490, 521, 523, 527.`,
+	},
+	{
+		Name: "epay_limit_exceeded", Bank: bank.Epay, Title: "📈 Epay: Limit exceeded",
+		Description: "Halyk reasonCode=486 → PG ErrCardLimitationsExceeded",
+		Sample: `{"code":486,"message":"Card limitations exceeded","resultCode":486}
+
+# Альтернативы: 488, 491, 528, 529.`,
+	},
+	{
+		Name: "epay_3ds_required", Bank: bank.Epay, Title: "🔐 Epay: 3DS challenge",
+		Description: "Cryptopay возвращает secure3D-блок → PG должен редиректить пользователя на ACS",
+		Sample: `HTTP/1.1 200 OK
+Content-Type: application/json
+
+{
+  "id":"mock-epay-1700000123",
+  "amount":5000,
+  "currency":"KZT",
+  "invoiceId":"000123",
+  "secure3D":{
+    "paReq":"mock-pareq",
+    "md":"mock-epay-1700000123",
+    "action":"https://test.bankffin.kz/3d_secure"
+  },
+  ...
+}`,
+	},
+	{
+		Name: "epay_oauth_timeout", Bank: bank.Epay, Title: "⏱ Epay: OAuth timeout",
+		Description: "POST /oauth2/token — 15s timeout × 3 retry. PG не получит access_token.",
+		Sample: `# Каждая попытка → 15s + TCP close.
+# PG-лог:
+giving up after 3 attempt(s): Post "https://testoauth.homebank.kz/epay2/oauth2/token":
+context deadline exceeded`,
+	},
+	{
+		Name: "epay_charge_timeout", Bank: bank.Epay, Title: "⏱ Epay: Charge timeout",
+		Description: "POST /api/operation/{id}/charge — 20s timeout. Холд остаётся, статус неизвестен.",
+		Sample: `# PG-лог: net/http: request canceled while awaiting headers
+# PG-сценарий: при ошибке charge → reconciling запрос статуса.`,
+	},
+	{
+		Name: "epay_cryptopay_500", Bank: bank.Epay, Title: "💥 Epay: Cryptopay 500",
+		Description: "Cryptopay отвечает 500 (Halyk API упал)",
+		Sample: `HTTP/1.1 500 Internal Server Error
+# PG retryablehttp ретрайт 3×, потом giving up`,
+	},
+	{
+		Name: "epay_postlink_lost", Bank: bank.Epay, Title: "📭 Epay: Postlink lost",
+		Description: "Charge успешен, но мок НЕ шлёт postlink. PG ждёт callback вечно (reconciler найдёт).",
+		Sample: `# Шаг 1: charge → 200 {code:0}
+# Шаг 2: postlink НЕ отправляется
+# PG: транзакция остаётся в pending до тайм-аута reconciler-а.`,
+	},
+	{
+		Name: "epay_postlink_double", Bank: bank.Epay, Title: "🔁 Epay: Double postlink",
+		Description: "После charge мок шлёт postlink дважды (race-кейс)",
+		Sample: `# Шаг 1: charge → 200 {code:0}
+# Шаг 2: postlink → /webhook/epay_v2/postlink (success)
+# Шаг 3: ещё один postlink на тот же URL через 500мс
+# Тест idempotency на стороне PG.`,
+	},
+	{
+		Name: "epay_postlink_before_ack", Bank: bank.Epay, Title: "⚡ Epay: Postlink-before-ack",
+		Description: "Postlink уходит до возврата ответа на charge (race с inflight-запросом)",
+		Sample: `# Шаг 1: PG отправляет POST /api/operation/{id}/charge
+# Шаг 2: мок начинает обработку — параллельно шлёт postlink
+# Шаг 3: PG обрабатывает postlink ДО получения ответа на charge
+# Воспроизводит inflight-race на стороне PG.`,
+	},
+	{
+		Name: "epay_wrong_invoice_id", Bank: bank.Epay, Title: "🔀 Epay: Wrong invoiceId",
+		Description: "Cryptopay ответ с подменённым invoiceId (проверка валидации соответствия запрос↔ответ)",
+		Sample: `{
+  "id":"mock-epay-1700000123",
+  "invoiceId":"000000",  ← не тот, что PG отправил
+  ...
+}`,
+	},
+	{
+		Name: "epay_unknown_error", Bank: bank.Epay, Title: "❓ Epay: Unknown bank error",
+		Description: "Halyk reasonCode=477 → PG ErrUnknown",
+		Sample:      `{"code":477,"message":"Unknown bank error","resultCode":477}`,
+	},
+	{
+		Name: "epay_ambiguous_charge_recovery", Bank: bank.Epay, Title: "⚡ Epay-EX1001: Charge ambiguous → status recovery",
+		Description: "Charge упал (code=477 'Operation already exists'), но check-status показывает CHARGE → PG должен принять",
+		Sample: `# Шаг 1: POST /api/operation/{id}/charge → 400
+{"code":477,"message":"Operation already exists","resultCode":477}
+
+# Шаг 2: GET /check-status/payment/transactionId/{id} → 200
+{"id":"...","status":"CHARGE","statusName":"Списан","amount":5000}
+
+# PG-reconciler: видит CHARGE → транзакция → Captured (как Freedom EX-1001).`,
+	},
+	{
+		Name: "epay_ambiguous_authorize_recovery", Bank: bank.Epay, Title: "⚡ Epay-EX1001: Authorize ambiguous → status recovery",
+		Description: "Cryptopay упал (code=477), но check-status показывает AUTH → платёж создан",
+		Sample: `# Шаг 1: POST /api/payment/cryptopay → 400
+{"code":477,"message":"Operation already exists","resultCode":477}
+
+# Шаг 2: GET /check-status/payment/transactionId/{id} → 200
+{"status":"AUTH","statusName":"Авторизован","amount":5000,...}
+
+# PG: принимает Authorized, продолжает flow charge.`,
+	},
+	{
+		Name: "epay_unauthorized_401", Bank: bank.Epay, Title: "🔒 Epay: 401 Unauthorized",
+		Description: "OAuth-токен принят, но платёжный запрос вернул 401 (токен истёк / отозван)",
+		Sample: `HTTP/1.1 401 Unauthorized
+{"message":"Unauthorized"}
+
+# PG-клиент: "требуется авторизация" (epay_2/client.go:checkResponse).`,
+	},
+	{
+		Name: "epay_forbidden_403", Bank: bank.Epay, Title: "🚫 Epay: 403 Forbidden (IP-whitelist)",
+		Description: "Запрос с не-whitelisted IP. В проде — индикатор смены IP/proxy.",
+		Sample: `HTTP/1.1 403 Forbidden
+{"message":"Forbidden"}
+
+# PG-клиент: "недостаточно прав для выполнения операции".`,
+	},
+	{
+		Name: "epay_transient_500_then_ok", Bank: bank.Epay, Title: "🔄 Epay: Transient 500 → retry succeeds",
+		Description: "Первая попытка charge → 500, retry → 200. Тест smarthttp retry-обёртки PG.",
+		Sample: `# Запрос 1: POST /api/operation/{id}/charge → 500
+{"message":"Service temporarily unavailable"}
+
+# (smarthttp.WithRetryRequest)
+# Запрос 2: POST /api/operation/{id}/charge → 200
+{"code":0,"message":"Operation completed successfully"}`,
+	},
+	{
+		Name: "epay_double_charge_rejected", Bank: bank.Epay, Title: "🔁 Epay: Double charge → 477",
+		Description: "Повторный charge на ту же операцию (после успешного первого) — отклоняется",
+		Sample: `# Запрос 1: charge → 200 (успех)
+# Запрос 2: charge (retry после сетевого timeout) → 400
+{"code":477,"message":"Operation already charged"}
+
+# PG: ambiguous-marker, идёт в check-status — там CHARGE → принимает.`,
+	},
+	{
+		Name: "epay_double_cancel_rejected", Bank: bank.Epay, Title: "🔁 Epay: Double cancel → error",
+		Description: "Повторный cancel на уже отменённой операции",
+		Sample: `# Запрос 1: cancel → 200
+# Запрос 2: cancel → 400
+{"code":477,"message":"Operation already cancelled"}`,
+	},
+	{
+		Name: "epay_oauth_unauthorized", Bank: bank.Epay, Title: "🔒 Epay: OAuth credentials invalid",
+		Description: "POST /oauth2/token → 401: client_id/secret не приняты",
+		Sample: `HTTP/1.1 401 Unauthorized
+{"message":"Invalid client credentials"}
+
+# PG: getToken() fail → весь flow обрывается до первого платёжного вызова.`,
+	},
+	{
+		Name: "epay_bind_failure", Bank: bank.Epay, Title: "🪪 Epay: Bind failure webhook",
+		Description: "Cryptopay с cardSave=true прошёл, но bind-postlink приходит с reasonCode != 0",
+		Sample: `POST /api/v1/payment-gateway/webhook/epay/postlink/bind
+{
+  "accountId":"12345",
+  "cardId":"11f1...","cardMask":"440043...2221",
+  "code":"error","reason":"Card binding failed","reasonCode":-444,
+  "invoiceId":"191111111"
+}
+
+# PG: order.markAsFailed для bind-flow.`,
+	},
+	{
+		Name: "epay_webhook_unknown_order", Bank: bank.Epay, Title: "📨 Epay: Webhook for non-existent order",
+		Description: "Postlink приходит с invoiceId, которого нет в БД PG",
+		Sample: `POST /api/v1/payment-gateway/webhook/epay_v2/postlink
+{"id":"epay-uuid","invoiceId":"999999999","code":"ok",...}
+
+# PG: 200 OK, лог-warn, ничего не делает (защита от мусорных webhook-ов).`,
+	},
+	{
+		Name: "epay_webhook_missing_fields", Bank: bank.Epay, Title: "📨 Epay: Webhook with missing fields",
+		Description: "Postlink с пропущенными опциональными полями (cardId, reference, …)",
+		Sample: `POST /api/v1/payment-gateway/webhook/epay_v2/postlink
+{"id":"epay-uuid","invoiceId":"123","code":"ok"}
+# cardId, cardMask, reference, issuer — отсутствуют.
+# PG: записывает orderID без payment-метаданных.`,
+	},
+	{
+		Name: "epay_3ds_missing_action_url", Bank: bank.Epay, Title: "🔐 Epay: 3DS without action URL",
+		Description: "Cryptopay возвращает secure3D, но action пустой (мусорный ответ Halyk)",
+		Sample: `{
+  "id":"epay-uuid",
+  "secure3D":{"paReq":"...","md":"...","action":""}
+}
+# PG не сможет отрендерить редирект — клиент застрянет на форме.`,
+	},
+
+	{
+		Name: "wrong_amount", Bank: bank.Freedom, Title: "💱 Wrong amount",
 		Description: "Status вернул pg_amount=1",
 		Sample: `<response>
   <pg_status>ok</pg_status>
@@ -452,13 +695,19 @@ Content-Type: application/xml; charset=utf-8
 }
 
 // ApplyPreset — добавляет сценарии по имени preset-а. См. AllPresets для списка.
-func (s *Service) ApplyPreset(name string) { //nolint:gocyclo
+func (s *Service) ApplyPreset(name string) { //nolint:gocyclo,funlen
 	wild := scenario.Wildcard
-	add := func(endpoint string, action scenario.Action, params map[string]string, consumeOnce bool) {
+	addFor := func(b bank.Bank, endpoint string, action scenario.Action, params map[string]string, consumeOnce bool) {
 		s.store.Add(&scenario.Scenario{
-			Endpoint: endpoint, PaymentID: wild, OrderID: wild, MerchantID: wild,
+			Bank: b, Endpoint: endpoint, PaymentID: wild, OrderID: wild, MerchantID: wild,
 			Action: action, Params: params, ConsumeOnce: consumeOnce, CreatedAt: time.Now(),
 		})
+	}
+	add := func(endpoint string, action scenario.Action, params map[string]string, consumeOnce bool) {
+		addFor(bank.Freedom, endpoint, action, params, consumeOnce)
+	}
+	addEpay := func(endpoint string, action scenario.Action, params map[string]string, consumeOnce bool) {
+		addFor(bank.Epay, endpoint, action, params, consumeOnce)
 	}
 
 	switch name {
@@ -497,7 +746,8 @@ func (s *Service) ApplyPreset(name string) { //nolint:gocyclo
 		add("applepay", scenario.ActionTimeout, map[string]string{"seconds": "15"}, false)
 		add("googlepay", scenario.ActionTimeout, map[string]string{"seconds": "15"}, false)
 	case "context_deadline":
-		add(wild, scenario.ActionTimeout, map[string]string{"seconds": "60"}, false)
+		// Wildcard endpoint — действует на любой банк, поэтому Bank=Any.
+		addFor(bank.Any, wild, scenario.ActionTimeout, map[string]string{"seconds": "60"}, false)
 
 	// Бизнес-ошибки. Коды соответствуют PG error_mapping.go — один-в-один
 	// с тем, что Freedom Pay возвращает в проде.
@@ -570,5 +820,87 @@ func (s *Service) ApplyPreset(name string) { //nolint:gocyclo
 		add("direct", scenario.ActionMissingField, map[string]string{"field": "pg_sig"}, true)
 	case "wrong_amount":
 		add("get_status3.php", scenario.ActionWrongAmount, map[string]string{"amount": "1"}, true)
+
+	// ===== Halyk Epay v2 =====
+	case "epay_insufficient_funds":
+		addEpay(wild, scenario.ActionForceFailure, map[string]string{"reason_code": "484", "message": "Insufficient funds"}, true)
+	case "epay_card_expired":
+		addEpay(wild, scenario.ActionForceFailure, map[string]string{"reason_code": "478", "message": "Card expired"}, true)
+	case "epay_invalid_card":
+		addEpay(wild, scenario.ActionForceFailure, map[string]string{"reason_code": "457", "message": "Invalid card data"}, true)
+	case "epay_declined_by_issuer":
+		addEpay(wild, scenario.ActionForceFailure, map[string]string{"reason_code": "455", "message": "Declined by issuer"}, true)
+	case "epay_limit_exceeded":
+		addEpay(wild, scenario.ActionForceFailure, map[string]string{"reason_code": "486", "message": "Card limitations exceeded"}, true)
+	case "epay_unknown_error":
+		addEpay(wild, scenario.ActionForceFailure, map[string]string{"reason_code": "477", "message": "Unknown bank error"}, true)
+	case "epay_3ds_required":
+		addEpay(scenario.EndpointEpayCryptopay, scenario.ActionForce3DS, nil, true)
+	case "epay_oauth_timeout":
+		addEpay(scenario.EndpointEpayToken, scenario.ActionTimeout, map[string]string{"seconds": "15"}, false)
+	case "epay_charge_timeout":
+		addEpay(scenario.EndpointEpayCharge, scenario.ActionTimeout, map[string]string{"seconds": "20"}, true)
+	case "epay_cryptopay_500":
+		addEpay(scenario.EndpointEpayCryptopay, scenario.ActionHTTPError, map[string]string{"http_status": "500"}, true)
+	case "epay_postlink_lost":
+		addEpay(scenario.EndpointEpayCharge, scenario.ActionPostlinkLost, nil, true)
+	case "epay_postlink_double":
+		addEpay(scenario.EndpointEpayCharge, scenario.ActionPostlinkDouble, nil, true)
+	case "epay_postlink_before_ack":
+		addEpay(scenario.EndpointEpayCharge, scenario.ActionPostlinkBeforeAck, nil, true)
+	case "epay_wrong_invoice_id":
+		addEpay(scenario.EndpointEpayCryptopay, scenario.ActionMissingField, map[string]string{"field": "invoiceId"}, true)
+
+	// Halyk EX-1001 аналог: charge/cryptopay fail, но status показывает реальный success.
+	case "epay_ambiguous_charge_recovery":
+		addEpay(scenario.EndpointEpayCharge, scenario.ActionEpayAmbiguous,
+			map[string]string{"reason_code": "477", "message": "Operation already exists"}, true)
+		// На следующий status-check — handler без сценария отдаст реальное состояние из репо,
+		// но т.к. сам charge не выполнился, статус остался AUTH → ровно то, что нужно для recovery.
+	case "epay_ambiguous_authorize_recovery":
+		addEpay(scenario.EndpointEpayCryptopay, scenario.ActionEpayAmbiguous,
+			map[string]string{"reason_code": "477", "message": "Operation already exists"}, true)
+
+	// HTTP-уровневые статусы
+	case "epay_unauthorized_401":
+		addEpay(wild, scenario.ActionForceUnauthorized, nil, true)
+	case "epay_forbidden_403":
+		addEpay(wild, scenario.ActionForceForbidden, nil, true)
+	case "epay_oauth_unauthorized":
+		addEpay(scenario.EndpointEpayToken, scenario.ActionForceUnauthorized,
+			map[string]string{"message": "Invalid client credentials"}, true)
+
+	// Transient retry-recovery: одна попытка 500, следующая — успешна.
+	case "epay_transient_500_then_ok":
+		addEpay(scenario.EndpointEpayCharge, scenario.ActionTransientFailure,
+			map[string]string{"http_status": "500", "message": "Service temporarily unavailable"}, false)
+
+	// Double charge/cancel
+	case "epay_double_charge_rejected":
+		addEpay(scenario.EndpointEpayCharge, scenario.ActionForceFailure,
+			map[string]string{"reason_code": "477", "message": "Operation already charged"}, true)
+	case "epay_double_cancel_rejected":
+		addEpay(scenario.EndpointEpayCancel, scenario.ActionForceFailure,
+			map[string]string{"reason_code": "477", "message": "Operation already cancelled"}, true)
+
+	// Bind / webhook edge cases
+	case "epay_bind_failure":
+		// На cryptopay (cardSave-flow) cancel transmission — ошибка bind webhook идёт отдельно
+		// через panel-button "Send Card-Bind Webhook (Failure)". Пока — преcет работает как
+		// маркер: сам по себе не создаёт сценарий, но добавляет правило on-bind cryptopay
+		// success возвращать ошибку.
+		addEpay(scenario.EndpointEpayCryptopay, scenario.ActionForceFailure,
+			map[string]string{"reason_code": "457", "message": "Card binding failed"}, true)
+	case "epay_webhook_unknown_order":
+		// Webhook отправляется со стороны мока вручную; этот preset — заметка для UI,
+		// что нужно нажать "Send postlink" на несуществующий orderID. Технически добавляем
+		// no-op-сценарий, чтобы preset фигурировал в списке.
+		addEpay(wild, scenario.ActionDelay, map[string]string{"seconds": "0"}, true)
+	case "epay_webhook_missing_fields":
+		// Аналогично — оператор отправляет webhook руками. Сценарий-маркер.
+		addEpay(wild, scenario.ActionDelay, map[string]string{"seconds": "0"}, true)
+	case "epay_3ds_missing_action_url":
+		addEpay(scenario.EndpointEpayCryptopay, scenario.ActionForce3DS,
+			map[string]string{"action": "", "pa_req": "mock-pareq"}, true)
 	}
 }

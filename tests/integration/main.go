@@ -18,9 +18,18 @@ import (
 )
 
 const (
-	baseURL = "http://localhost:48532"
-	secret  = "mock-secret-key"
+	defaultBaseURL = "http://localhost:48532"
+	secret         = "mock-secret-key"
 )
+
+// baseURL — адрес мока. Переопределяется через CHAOSPAY_BASE_URL (для локального запуска
+// без docker, где port:8532 не пробрасывается на 48532).
+var baseURL = func() string {
+	if v := os.Getenv("CHAOSPAY_BASE_URL"); v != "" {
+		return v
+	}
+	return defaultBaseURL
+}()
 
 var (
 	passCount int
@@ -54,7 +63,9 @@ func main() {
 		})
 
 	testCase("malformed_body on applepay",
-		func() { addScenario("applepay", "malformed_body", map[string]string{"body": `{"BROKEN`, "content_type": "application/json"}, true) },
+		func() {
+			addScenario("applepay", "malformed_body", map[string]string{"body": `{"BROKEN`, "content_type": "application/json"}, true)
+		},
 		func() (string, error) {
 			body, code, ct, err := postJSON(fmt.Sprintf("/pay/%d/pay", walletPaymentID), `{"data":{"token":"x"}}`)
 			if err != nil {
@@ -676,9 +687,9 @@ func main() {
 		func() { mustReset() },
 		func() (string, error) {
 			body, code, err := postSignedXML("remove", map[string]string{
-				"pg_merchant_id":  "100001",
-				"pg_user_id":      "1",
-				"pg_card_token":   "dummy-token",
+				"pg_merchant_id": "100001",
+				"pg_user_id":     "1",
+				"pg_card_token":  "dummy-token",
 			})
 			if err != nil || code != 200 {
 				return "", fmt.Errorf("code=%d err=%v body=%q", code, err, body)
@@ -926,6 +937,220 @@ func main() {
 	}
 	testWebhookFlow()
 
+	// --- Halyk Epay v2 ---
+	section("Halyk Epay — happy paths")
+	testCase("OAuth token issued",
+		func() {},
+		func() (string, error) {
+			body, code, _, err := postForm("/oauth2/token",
+				"grant_type=client_credentials&client_id=test&client_secret=s&invoiceID=000123&amount=5000&currency=KZT&terminal=t")
+			if err != nil {
+				return "", err
+			}
+			if code != 200 || !strings.Contains(body, "access_token") {
+				return "", fmt.Errorf("got %d body=%s", code, body)
+			}
+			return "OAuth ok", nil
+		})
+
+	var epayID string
+	testCase("cryptopay → Authorize",
+		func() {},
+		func() (string, error) {
+			body, code, _, err := postJSON("/api/payment/cryptopay",
+				`{"amount":5000,"invoiceId":"000123","currency":"KZT","cryptogram":"x"}`)
+			if err != nil {
+				return "", err
+			}
+			if code != 200 {
+				return "", fmt.Errorf("got %d body=%s", code, body)
+			}
+			epayID = extractField(body, `"id":"`, `"`)
+			if epayID == "" {
+				return "", fmt.Errorf("no id in response")
+			}
+			return "id=" + epayID, nil
+		})
+
+	testCase("charge → 200 {code:0}",
+		func() {},
+		func() (string, error) {
+			body, code, _, err := postJSON("/api/operation/"+epayID+"/charge", `{"amount":5000}`)
+			if err != nil {
+				return "", err
+			}
+			if code != 200 || !strings.Contains(body, `"code":0`) {
+				return "", fmt.Errorf("got %d body=%s", code, body)
+			}
+			return "charged", nil
+		})
+
+	testCase("status-check returns CHARGE",
+		func() {},
+		func() (string, error) {
+			req, _ := http.NewRequest("GET", baseURL+"/check-status/payment/transactionId/"+epayID, nil)
+			resp, err := http.DefaultClient.Do(req)
+			if err != nil {
+				return "", err
+			}
+			defer resp.Body.Close()
+			raw, _ := io.ReadAll(resp.Body)
+			if resp.StatusCode != 200 || !strings.Contains(string(raw), `"status":"CHARGE"`) {
+				return "", fmt.Errorf("got %d body=%s", resp.StatusCode, raw)
+			}
+			return "status=CHARGE", nil
+		})
+
+	section("Halyk Epay — business declines")
+	for _, tc := range []struct {
+		preset string
+		code   string
+	}{
+		{"epay_insufficient_funds", `"code":484`},
+		{"epay_card_expired", `"code":478`},
+		{"epay_invalid_card", `"code":457`},
+		{"epay_declined_by_issuer", `"code":455`},
+		{"epay_limit_exceeded", `"code":486`},
+		{"epay_unknown_error", `"code":477`},
+	} {
+		tc := tc
+		testCase(tc.preset,
+			func() { applyPresetForBank(tc.preset, "epay"); mustReset() }, // mustReset перед нет, сначала apply
+			func() (string, error) {
+				// preset скидывается mustReset выше — повторно apply:
+				applyPresetForBank(tc.preset, "epay")
+				body, code, _, err := postJSON("/api/payment/cryptopay",
+					`{"amount":1000,"invoiceId":"000999","currency":"KZT","cryptogram":"x"}`)
+				if err != nil {
+					return "", err
+				}
+				if code != 400 || !strings.Contains(body, tc.code) {
+					return "", fmt.Errorf("got %d body=%s", code, body)
+				}
+				return tc.code, nil
+			})
+	}
+
+	section("Halyk Epay — HTTP status overrides")
+	testCase("401 Unauthorized",
+		func() { mustReset(); applyPresetForBank("epay_unauthorized_401", "epay") },
+		func() (string, error) {
+			_, code, _, err := postJSON("/api/payment/cryptopay",
+				`{"amount":1000,"invoiceId":"000999","cryptogram":"x"}`)
+			if err != nil {
+				return "", err
+			}
+			if code != 401 {
+				return "", fmt.Errorf("got %d", code)
+			}
+			return "401 ✓", nil
+		})
+	testCase("403 Forbidden",
+		func() { mustReset(); applyPresetForBank("epay_forbidden_403", "epay") },
+		func() (string, error) {
+			_, code, _, err := postJSON("/api/payment/cryptopay",
+				`{"amount":1000,"invoiceId":"000999","cryptogram":"x"}`)
+			if err != nil {
+				return "", err
+			}
+			if code != 403 {
+				return "", fmt.Errorf("got %d", code)
+			}
+			return "403 ✓", nil
+		})
+	testCase("OAuth credentials invalid",
+		func() { mustReset(); applyPresetForBank("epay_oauth_unauthorized", "epay") },
+		func() (string, error) {
+			_, code, _, err := postForm("/oauth2/token", "grant_type=client_credentials&client_id=bad")
+			if err != nil {
+				return "", err
+			}
+			if code != 401 {
+				return "", fmt.Errorf("got %d", code)
+			}
+			return "401 on token ✓", nil
+		})
+
+	section("Halyk Epay — ambiguous / recovery")
+	testCase("ambiguous charge → status reports AUTH",
+		func() {},
+		func() (string, error) {
+			mustReset()
+			// 1) Создаём свежий платёж.
+			body, _, _, err := postJSON("/api/payment/cryptopay",
+				`{"amount":7000,"invoiceId":"001001","currency":"KZT","cryptogram":"x"}`)
+			if err != nil {
+				return "", err
+			}
+			id := extractField(body, `"id":"`, `"`)
+			// 2) Ставим preset → следующий charge упадёт с 477.
+			applyPresetForBank("epay_ambiguous_charge_recovery", "epay")
+			_, chargeCode, _, _ := postJSON("/api/operation/"+id+"/charge", `{"amount":7000}`)
+			if chargeCode != 400 {
+				return "", fmt.Errorf("expected 400 on ambiguous charge, got %d", chargeCode)
+			}
+			// 3) Status-check показывает AUTH (charge не выполнился).
+			req, _ := http.NewRequest("GET", baseURL+"/check-status/payment/transactionId/"+id, nil)
+			resp, _ := http.DefaultClient.Do(req)
+			raw, _ := io.ReadAll(resp.Body)
+			resp.Body.Close()
+			if !strings.Contains(string(raw), `"status":"AUTH"`) {
+				return "", fmt.Errorf("expected AUTH, got %s", raw)
+			}
+			return "AUTH ✓", nil
+		})
+
+	section("Halyk Epay — transient retry")
+	testCase("transient 500 → second attempt 200",
+		func() {},
+		func() (string, error) {
+			mustReset()
+			body, _, _, _ := postJSON("/api/payment/cryptopay",
+				`{"amount":3000,"invoiceId":"002002","currency":"KZT","cryptogram":"x"}`)
+			id := extractField(body, `"id":"`, `"`)
+			applyPresetForBank("epay_transient_500_then_ok", "epay")
+			_, code1, _, _ := postJSON("/api/operation/"+id+"/charge", `{"amount":3000}`)
+			if code1 != 500 {
+				return "", fmt.Errorf("first charge expected 500, got %d", code1)
+			}
+			_, code2, _, _ := postJSON("/api/operation/"+id+"/charge", `{"amount":3000}`)
+			if code2 != 200 {
+				return "", fmt.Errorf("second charge expected 200, got %d", code2)
+			}
+			return "500 then 200 ✓", nil
+		})
+
+	section("Halyk Epay — 3DS")
+	testCase("3DS challenge inline",
+		func() { mustReset(); applyPresetForBank("epay_3ds_required", "epay") },
+		func() (string, error) {
+			body, code, _, err := postJSON("/api/payment/cryptopay",
+				`{"amount":4000,"invoiceId":"003003","currency":"KZT","cryptogram":"x"}`)
+			if err != nil {
+				return "", err
+			}
+			if code != 200 || !strings.Contains(body, `"secure3D"`) {
+				return "", fmt.Errorf("got %d body=%s", code, body)
+			}
+			return "secure3D ✓", nil
+		})
+	testCase("3DS missing action URL",
+		func() { mustReset(); applyPresetForBank("epay_3ds_missing_action_url", "epay") },
+		func() (string, error) {
+			body, _, _, err := postJSON("/api/payment/cryptopay",
+				`{"amount":4000,"invoiceId":"003004","currency":"KZT","cryptogram":"x"}`)
+			if err != nil {
+				return "", err
+			}
+			// action должен быть пустым.
+			if !strings.Contains(body, `"action":""`) {
+				return "", fmt.Errorf("action should be empty, got %s", body)
+			}
+			return "action='' ✓", nil
+		})
+
+	mustReset()
+
 	// Final summary
 	section("Summary")
 	fmt.Printf("\n  ✅ Passed: %d\n", passCount)
@@ -977,7 +1202,17 @@ func resetAll() {
 }
 
 func applyPreset(name string) {
-	resp, err := http.PostForm(baseURL+"/panel/scenarios/preset", url.Values{"preset": {name}})
+	applyPresetForBank(name, "freedom")
+}
+
+// applyPresetForBank — точечный helper для пресетов с банк-scope.
+// Большинство Freedom-пресетов работают и без bank-параметра (Scenario.Bank=Any),
+// но Epay-пресеты обязаны быть в Bank=Epay, иначе scenario.Match их не найдёт.
+func applyPresetForBank(name, bank string) {
+	resp, err := http.PostForm(baseURL+"/panel/scenarios/preset", url.Values{
+		"preset": {name},
+		"bank":   {bank},
+	})
 	if err != nil {
 		panic("applyPreset: " + err.Error())
 	}
@@ -1010,7 +1245,11 @@ func addScenario(endpoint, action string, params map[string]string, consumeOnce 
 }
 
 func listScenariosHTML() string {
-	resp, err := http.Get(baseURL + "/panel?tab=scenarios")
+	return listScenariosHTMLForBank("freedom")
+}
+
+func listScenariosHTMLForBank(bank string) string {
+	resp, err := http.Get(baseURL + "/panel?bank=" + bank + "&tab=scenarios") //nolint:noctx
 	if err != nil {
 		return ""
 	}
@@ -1068,13 +1307,13 @@ func holdInit() uint64 {
 	// Make sure no scenarios match this call. We add scenario AFTER this. But caller resets first.
 	// Some tests need scenario for OTHER endpoint than "init", so it's safe to call after addScenario.
 	body, code, err := postSignedXML2("init", map[string]string{
-		"pg_merchant_id":      "100001",
-		"pg_order_id":         fmt.Sprintf("hi-%d", time.Now().UnixNano()),
-		"pg_amount":           "500",
-		"pg_currency":         "KZT",
-		"pg_user_id":          "1",
-		"pg_card_token":       "tok",
-		"pg_idempotency_key":  fmt.Sprintf("idem-%d", time.Now().UnixNano()),
+		"pg_merchant_id":     "100001",
+		"pg_order_id":        fmt.Sprintf("hi-%d", time.Now().UnixNano()),
+		"pg_amount":          "500",
+		"pg_currency":        "KZT",
+		"pg_user_id":         "1",
+		"pg_card_token":      "tok",
+		"pg_idempotency_key": fmt.Sprintf("idem-%d", time.Now().UnixNano()),
 	}, "")
 	if err != nil || code != 200 {
 		panic(fmt.Sprintf("holdInit failed: code=%d err=%v body=%s", code, err, body))

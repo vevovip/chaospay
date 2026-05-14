@@ -3,13 +3,16 @@ package panel
 import (
 	"fmt"
 	"net/http"
+
+	"github.com/vevovip/chaospay/internal/domain/bank"
 )
 
-// renderHeader пишет общий header + tab-bar. Auto-refresh только на cards/qr/log.
-func (c *Controller) renderHeader(w http.ResponseWriter, tab string) {
+// renderHeader пишет header + bank-tabs + sub-tabs.
+// Auto-refresh на cards/log (внутри банка).
+func (c *Controller) renderHeader(w http.ResponseWriter, b bank.Bank, tab string) {
 	refresh := ""
 	refreshNote := "Обновление вручную"
-	if tab == "cards" || tab == "qr" || tab == "log" {
+	if tab == "cards" || tab == "log" || b == bank.QR {
 		refresh = `<meta http-equiv="refresh" content="3">`
 		refreshNote = "Автообновление каждые 3 сек"
 	}
@@ -48,32 +51,87 @@ function toggleRow(id) {
     </div>
     <div class="refresh-note">%s</div>
   </div>
-  <nav class="tabs" aria-label="Panel sections">
+  <nav class="tabs bank-tabs" aria-label="Banks">
 `, refresh, panelCSS, refreshNote)
 
-	tabs := []struct {
-		key, label string
-	}{
-		{"cards", "Card Payments"},
-		{"qr", "QR-PAY"},
-		{"scenarios", "Scenarios"},
-		{"log", "Request Log"},
-		{"settings", "Settings"},
-	}
-	for _, t := range tabs {
+	// Bank-level tabs.
+	for _, kb := range bank.All {
 		active := ""
-		if t.key == tab {
+		if kb == b {
 			active = " active"
 		}
-		fmt.Fprintf(w, `<a class="tab%s" href="/panel?tab=%s">%s</a>`, active, t.key, t.label)
+		title := bank.Titles[kb]
+		fmt.Fprintf(w, `<a class="tab%s" href="/panel?bank=%s&tab=%s">%s</a>`, active, kb, defaultTabFor(kb), title)
 	}
-	fmt.Fprint(w, `</nav>
-</div>
+	active := ""
+	if tab == "settings" {
+		active = " active"
+	}
+	fmt.Fprintf(w, `<a class="tab%s" href="/panel?tab=settings">Settings</a>`, active)
+	fmt.Fprint(w, `</nav>`)
+
+	// Sub-tabs (внутри банка).
+	subtabs := subTabsFor(b)
+	if len(subtabs) > 0 {
+		fmt.Fprint(w, `<nav class="tabs sub-tabs" aria-label="Sections">`)
+		for _, st := range subtabs {
+			a := ""
+			if st.key == tab {
+				a = " active"
+			}
+			fmt.Fprintf(w, `<a class="tab%s" href="/panel?bank=%s&tab=%s">%s</a>`, a, b, st.key, st.label)
+		}
+		fmt.Fprint(w, `</nav>`)
+	}
+
+	fmt.Fprint(w, `</div>
 <main>`)
 }
 
 func (c *Controller) renderFooter(w http.ResponseWriter) {
 	fmt.Fprint(w, `</main></body></html>`)
+}
+
+type subTab struct {
+	key, label string
+}
+
+// subTabsFor возвращает sub-tabs для каждого банка.
+// QR/Loyalty — единая страница без sub-tabs.
+func subTabsFor(b bank.Bank) []subTab {
+	switch b {
+	case bank.Freedom, bank.Epay:
+		return []subTab{
+			{"cards", "Cards"},
+			{"scenarios", "Scenarios"},
+			{"log", "Request Log"},
+		}
+	case bank.QR:
+		return []subTab{
+			{"qr", "QR Codes"},
+			{"scenarios", "Scenarios"},
+			{"log", "Request Log"},
+		}
+	case bank.Loyalty:
+		return []subTab{
+			{"loyalty", "Loyalty"},
+			{"log", "Request Log"},
+		}
+	}
+	return nil
+}
+
+// defaultTabFor возвращает default sub-tab для каждого банка.
+func defaultTabFor(b bank.Bank) string {
+	switch b {
+	case bank.Freedom, bank.Epay:
+		return "cards"
+	case bank.QR:
+		return "qr"
+	case bank.Loyalty:
+		return "loyalty"
+	}
+	return ""
 }
 
 const panelCSS = `
@@ -85,6 +143,10 @@ body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-
 .subtitle { color: #6a7480; font-size: 13px; margin-top: 3px; }
 .refresh-note { color: #6a7480; background: #f3f6f8; border: 1px solid #dde5ec; border-radius: 999px; padding: 6px 10px; font-size: 12px; white-space: nowrap; }
 .tabs { display: flex; gap: 2px; overflow-x: auto; }
+.bank-tabs { border-bottom: 1px solid #e1e8ee; margin-bottom: 0; }
+.bank-tabs .tab { font-size: 15px; padding: 12px 16px; font-weight: 700; }
+.sub-tabs { background: #fafbfc; padding: 0 4px; border-bottom: 1px solid #edf1f4; }
+.sub-tabs .tab { font-size: 13px; padding: 9px 14px; }
 .tab { padding: 11px 14px; color: #53606d; text-decoration: none; font-size: 14px; font-weight: 600; border-bottom: 3px solid transparent; white-space: nowrap; }
 .tab:hover { color: #18212b; background: #f7fafc; }
 .tab.active { color: #08756f; border-bottom-color: #08756f; }
@@ -121,6 +183,11 @@ tr.detail td { background: #fbfcfd; padding: 12px; }
 .badge-REFUNDED, .badge-PARTIAL_REFUNDED { background: #f0eafa; color: #5a3b86; }
 .badge-FAILED, .badge-ERROR { background: #ffe8ea; color: #a52831; }
 .badge-SCANNED { background: #e1f6fa; color: #0b6b7f; }
+.bank-badge { display: inline-block; padding: 3px 8px; border-radius: 4px; font-size: 11px; font-weight: 700; background: #eef4f9; color: #1c55a3; text-transform: uppercase; letter-spacing: 0.3px; }
+.bank-badge-freedom { background: #edf8f7; color: #08756f; }
+.bank-badge-epay { background: #fff5e6; color: #b35400; }
+.bank-badge-qr { background: #e1f6fa; color: #0b6b7f; }
+.bank-badge-loyalty { background: #f0eafa; color: #5a3b86; }
 .actions { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; min-width: 220px; }
 .actions form { margin: 0; }
 .btn { border: 1px solid transparent; padding: 7px 11px; border-radius: 6px; color: #fff; cursor: pointer; font-size: 12px; font-weight: 700; line-height: 1.15; min-height: 31px; }

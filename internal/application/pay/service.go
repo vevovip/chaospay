@@ -29,22 +29,81 @@ type CardWebhook interface {
 	Send(rec *pay.Record) (int, error)
 }
 
+// EpayWebhook — отправляет postlink-ы Halyk Epay.
+type EpayWebhook interface {
+	SendSuccess(rec *pay.Record) (int, error)
+	SendFailure(rec *pay.Record, reasonCode int, reason string) (int, error)
+	SendBind(rec *pay.Record, success bool, reasonCode int, reason string) (int, error)
+}
+
 // Service — application-сервис карточных платежей.
 type Service struct {
 	repo        Repository
 	webhook     Webhook
 	cardWebhook CardWebhook
+	epayWebhook EpayWebhook
 	autoWebhook bool
 }
 
 // NewService конструктор. Все зависимости — интерфейсы (DI через конструктор).
-func NewService(repo Repository, wh Webhook, cw CardWebhook, autoWebhook bool) *Service {
+func NewService(repo Repository, wh Webhook, cw CardWebhook, ew EpayWebhook, autoWebhook bool) *Service {
 	return &Service{
 		repo:        repo,
 		webhook:     wh,
 		cardWebhook: cw,
+		epayWebhook: ew,
 		autoWebhook: autoWebhook,
 	}
+}
+
+// SendEpayPostlink отправляет success/failure postlink в PG для Epay-платежа.
+// variant: "success" (по умолчанию), "fail", "lost-order" (подмена invoiceId),
+// "missing-fields" (минимальный payload).
+func (s *Service) SendEpayPostlink(paymentID uint, success bool, variant string) error {
+	if s.epayWebhook == nil {
+		return ErrEpayWebhookNotConfigured
+	}
+	rec, err := s.repo.Get(paymentID)
+	if err != nil {
+		return err
+	}
+	switch variant {
+	case "lost-order":
+		// Подмена invoiceId/EpayInvoiceID → у PG в БД нет такого заказа.
+		clone := *rec
+		clone.EpayInvoiceID = "999999999"
+		rec = &clone
+	case "missing-fields":
+		clone := *rec
+		clone.CardPAN = ""
+		clone.CardBrand = ""
+		clone.CardOwner = ""
+		clone.Reference = 0
+		rec = &clone
+	}
+	if success {
+		_, errSend := s.epayWebhook.SendSuccess(rec)
+		return errSend
+	}
+	_, errSend := s.epayWebhook.SendFailure(rec, 484, "Insufficient funds")
+	return errSend
+}
+
+// SendEpayBindPostlink — bind-postlink (привязка карты).
+func (s *Service) SendEpayBindPostlink(paymentID uint, success bool) error {
+	if s.epayWebhook == nil {
+		return ErrEpayWebhookNotConfigured
+	}
+	rec, err := s.repo.Get(paymentID)
+	if err != nil {
+		return err
+	}
+	if success {
+		_, errSend := s.epayWebhook.SendBind(rec, true, 0, "success")
+		return errSend
+	}
+	_, errSend := s.epayWebhook.SendBind(rec, false, -444, "Card binding failed")
+	return errSend
 }
 
 // Repo возвращает репо для прямого доступа из ports (panel/list/raw get).

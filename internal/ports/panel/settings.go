@@ -76,13 +76,29 @@ func (c *Controller) renderSettingsTab(w http.ResponseWriter) {
 
 <div class="panel-card">
 <div class="section-title" style="margin-bottom:12px;">
+<h2>Halyk Epay v2 Terminal</h2>
+<p>Должно совпадать с EPAY_2_* конфигом в payment-gateway.</p>
+</div>
+<div class="kv">
+<div class="key">EPAY_2_CLIENT_ID</div><div class="val">%s</div>
+<div class="key">EPAY_2_CLIENT_SECRET</div><div class="val">%s</div>
+<div class="key">EPAY_2_TERMINAL_UUID</div><div class="val">%s</div>
+<div class="key">EPAY auto-webhook</div><div class="val">%v</div>
+</div>
+</div>
+
+<div class="panel-card">
+<div class="section-title" style="margin-bottom:12px;">
 <h2>Webhook Targets</h2>
 <p>Эти URL должны быть доступны из Docker network <code>dockernet-local</code>, а не только с хоста.</p>
 </div>
 <div class="endpoint-list">
-<div class="endpoint-row"><div class="key">Pay webhook</div><div class="val">%s</div></div>
-<div class="endpoint-row"><div class="key">Card-bind webhook</div><div class="val">%s</div></div>
+<div class="endpoint-row"><div class="key">Freedom: pay</div><div class="val">%s</div></div>
+<div class="endpoint-row"><div class="key">Freedom: card-bind</div><div class="val">%s</div></div>
 <div class="endpoint-row"><div class="key">QR webhook</div><div class="val">%s</div></div>
+<div class="endpoint-row"><div class="key">Epay: postlink</div><div class="val">%s</div></div>
+<div class="endpoint-row"><div class="key">Epay: failure_postlink</div><div class="val">%s</div></div>
+<div class="endpoint-row"><div class="key">Epay: bind postlink</div><div class="val">%s</div></div>
 </div>
 </div>
 
@@ -118,7 +134,8 @@ func (c *Controller) renderSettingsTab(w http.ResponseWriter) {
 		autoWebhookText, autoWebhookHint, c.cfg.GlobalDelaySeconds,
 		c.cfg.MerchantID, c.cfg.TerminalID, config.MaskSecret(c.cfg.Secret),
 		c.cfg.HostedFormURL,
-		c.cfg.PayWebhookURL, c.cfg.CardWebhookURL,
-		c.cfg.QRWebhookURL,
+		c.cfg.EpayClientID, config.MaskSecret(c.cfg.EpayClientSecret), c.cfg.EpayTerminalUUID, c.cfg.EpayAutoWebhook,
+		c.cfg.PayWebhookURL, c.cfg.CardWebhookURL, c.cfg.QRWebhookURL,
+		c.cfg.EpaySuccessWebhookURL, c.cfg.EpayFailureWebhookURL, c.cfg.EpayBindWebhookURL,
 	)
 }

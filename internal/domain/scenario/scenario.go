@@ -1,7 +1,11 @@
 // Package scenario описывает правила имитации ответов банка.
 package scenario
 
-import "time"
+import (
+	"time"
+
+	"github.com/vevovip/chaospay/internal/domain/bank"
+)
 
 // Action — тип реакции мока на матчевый запрос.
 type Action string
@@ -23,10 +27,20 @@ const (
 	ActionSlowBody        Action = "slow_body"        // headers ушли, тело — по байту с задержкой (param: chunk_delay_ms)
 	ActionWrongStatusCode Action = "wrong_status_code"
 	// Content-level: валидный XML/JSON, но с искажёнными бизнес-полями.
-	ActionWrongPaymentID Action = "wrong_payment_id" // подмена pg_payment_id (param: payment_id)
-	ActionWrongAmount    Action = "wrong_amount"     // подмена pg_amount (param: amount)
+	ActionWrongPaymentID Action = "wrong_payment_id" // подмена pg_payment_id / id
+	ActionWrongAmount    Action = "wrong_amount"     // подмена pg_amount / amount
 	ActionMissingField   Action = "missing_field"    // удалить указанное поле (param: field)
-	ActionExtraGarbage   Action = "extra_garbage"    // добавить мусорные поля (param: count)
+	ActionExtraGarbage   Action = "extra_garbage"    // добавить мусорные поля
+	// Epay-specific content-level. Реализуются в ports/api/epay/scenario.go.
+	ActionForce3DS          Action = "force_3ds"           // на cryptopay вернуть secure3D-ответ (3DS-челлендж)
+	ActionPostlinkBeforeAck Action = "postlink_before_ack" // отправить postlink ДО возврата ответа на charge
+	ActionPostlinkDouble    Action = "postlink_double"     // отправить postlink дважды
+	ActionPostlinkLost      Action = "postlink_lost"       // НЕ отправлять postlink (только ответ на charge)
+	// Halyk Epay incident-кейсы для reconciliation/race-flow.
+	ActionEpayAmbiguous     Action = "epay_ambiguous"     // 400 {code:477, message:"Operation already exists"}; следующий status-check вернёт настоящее состояние
+	ActionTransientFailure  Action = "transient_failure"  // первый запрос — http_status (по умолч. 500), последующие — нормальный ответ
+	ActionForceUnauthorized Action = "force_unauthorized" // 401 {message:"Unauthorized"} (как при истёкшем токене)
+	ActionForceForbidden    Action = "force_forbidden"    // 403 {message:"Forbidden"} (IP-whitelist в продaкшне)
 )
 
 // AllActions — для UI dropdown.
@@ -48,30 +62,98 @@ var AllActions = []Action{
 	ActionWrongAmount,
 	ActionMissingField,
 	ActionExtraGarbage,
+	ActionForce3DS,
+	ActionPostlinkBeforeAck,
+	ActionPostlinkDouble,
+	ActionPostlinkLost,
+	ActionEpayAmbiguous,
+	ActionTransientFailure,
+	ActionForceUnauthorized,
+	ActionForceForbidden,
 }
 
 // Wildcard матчер — совпадает с любым значением.
 const Wildcard = "*"
 
-// AllEndpoints — для UI dropdown. Совпадают с scriptName входящих запросов.
+// Freedom Pay endpoints (scriptName входящих запросов).
+const (
+	EndpointFreedomInit        = "init"
+	EndpointFreedomDirect      = "direct"
+	EndpointFreedomStatus      = "get_status3.php"
+	EndpointFreedomCapture     = "do_capture.php"
+	EndpointFreedomCancel      = "cancel.php"
+	EndpointFreedomRevoke      = "revoke.php"
+	EndpointFreedomInitPayment = "init_payment.php"
+	EndpointFreedomCardAdd     = "add2"
+	EndpointFreedomCardRemove  = "remove"
+	EndpointFreedomApplePay    = "applepay"
+	EndpointFreedomGooglePay   = "googlepay"
+)
+
+// Halyk Epay v2 endpoints.
+const (
+	EndpointEpayToken     = "epay_token"
+	EndpointEpayCryptopay = "epay_cryptopay"
+	EndpointEpayCardAuth  = "epay_card_auth"
+	EndpointEpayCharge    = "epay_charge"
+	EndpointEpayCancel    = "epay_cancel"
+	EndpointEpayRefund    = "epay_refund"
+	EndpointEpayStatus    = "epay_status" // GET /check-status/payment/transactionId/{id}
+)
+
+// AllEndpoints — для UI dropdown.
 var AllEndpoints = []string{
 	Wildcard,
-	"init",
-	"direct",
-	"get_status3.php",
-	"do_capture.php",
-	"cancel.php",
-	"revoke.php",
-	"init_payment.php",
-	"add2",
-	"remove",
-	"applepay",
-	"googlepay",
+	// Freedom
+	EndpointFreedomInit, EndpointFreedomDirect,
+	EndpointFreedomStatus, EndpointFreedomCapture, EndpointFreedomCancel, EndpointFreedomRevoke,
+	EndpointFreedomInitPayment,
+	EndpointFreedomCardAdd, EndpointFreedomCardRemove,
+	EndpointFreedomApplePay, EndpointFreedomGooglePay,
+	// Epay
+	EndpointEpayToken, EndpointEpayCryptopay, EndpointEpayCardAuth,
+	EndpointEpayCharge, EndpointEpayCancel, EndpointEpayRefund, EndpointEpayStatus,
+}
+
+// EndpointBank возвращает банк, к которому принадлежит endpoint-ключ.
+// Для wildcard ("*") и неизвестных — bank.Any.
+func EndpointBank(ep string) bank.Bank {
+	switch ep {
+	case EndpointFreedomInit, EndpointFreedomDirect,
+		EndpointFreedomStatus, EndpointFreedomCapture, EndpointFreedomCancel, EndpointFreedomRevoke,
+		EndpointFreedomInitPayment,
+		EndpointFreedomCardAdd, EndpointFreedomCardRemove,
+		EndpointFreedomApplePay, EndpointFreedomGooglePay:
+		return bank.Freedom
+	case EndpointEpayToken, EndpointEpayCryptopay, EndpointEpayCardAuth,
+		EndpointEpayCharge, EndpointEpayCancel, EndpointEpayRefund, EndpointEpayStatus:
+		return bank.Epay
+	}
+	return bank.Any
+}
+
+// EndpointsFor возвращает endpoint-ы выбранного банка (для UI dropdown с фильтрацией).
+// Возвращает Wildcard первым элементом.
+func EndpointsFor(b bank.Bank) []string {
+	if b == bank.Any {
+		return AllEndpoints
+	}
+	out := []string{Wildcard}
+	for _, ep := range AllEndpoints {
+		if ep == Wildcard {
+			continue
+		}
+		if EndpointBank(ep) == b {
+			out = append(out, ep)
+		}
+	}
+	return out
 }
 
 // Scenario — одно правило.
 type Scenario struct {
 	ID          string
+	Bank        bank.Bank // фильтр по банку. Пусто = любой.
 	Endpoint    string
 	PaymentID   string
 	OrderID     string
@@ -85,6 +167,7 @@ type Scenario struct {
 
 // MatchInput — параметры запроса для матчинга.
 type MatchInput struct {
+	Bank       bank.Bank
 	Endpoint   string
 	PaymentID  string
 	OrderID    string
@@ -93,10 +176,19 @@ type MatchInput struct {
 
 // Matches возвращает true, если правило совпадает с запросом.
 func (s *Scenario) Matches(in MatchInput) bool {
-	return matchValue(s.Endpoint, in.Endpoint) &&
+	return matchBank(s.Bank, in.Bank) &&
+		matchValue(s.Endpoint, in.Endpoint) &&
 		matchValue(s.PaymentID, in.PaymentID) &&
 		matchValue(s.OrderID, in.OrderID) &&
 		matchValue(s.MerchantID, in.MerchantID)
+}
+
+func matchBank(rule, actual bank.Bank) bool {
+	// bank.Any в правиле = wildcard. bank.Any в запросе = "не указано" → тоже совпадает.
+	if rule == bank.Any || actual == bank.Any {
+		return true
+	}
+	return rule == actual
 }
 
 func matchValue(rule, actual string) bool {

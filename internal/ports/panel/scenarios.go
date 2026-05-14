@@ -8,11 +8,18 @@ import (
 	"strings"
 
 	appscenario "github.com/vevovip/chaospay/internal/application/scenario"
+	"github.com/vevovip/chaospay/internal/domain/bank"
 	"github.com/vevovip/chaospay/internal/domain/scenario"
 )
 
-func (c *Controller) renderScenariosTab(w http.ResponseWriter) {
-	scs := c.scenarios.List()
+func (c *Controller) renderScenariosTab(w http.ResponseWriter, b bank.Bank) {
+	all := c.scenarios.List()
+	scs := make([]*scenario.Scenario, 0, len(all))
+	for _, sc := range all {
+		if sc.Bank == b || sc.Bank == bank.Any {
+			scs = append(scs, sc)
+		}
+	}
 	totalHits := 0
 	onceCount := 0
 	for _, sc := range scs {
@@ -23,13 +30,18 @@ func (c *Controller) renderScenariosTab(w http.ResponseWriter) {
 	}
 	persistentCount := len(scs) - onceCount
 
-	fmt.Fprint(w, `<div class="section-header">
+	bankTitle := bank.Titles[b]
+	if bankTitle == "" {
+		bankTitle = "All banks"
+	}
+	fmt.Fprintf(w, `<div class="section-header">
 <div class="section-title">
-<h2>Scenarios</h2>
+<h2>%s — Scenarios</h2>
 <p>Очередь правил, которые меняют следующий подходящий ответ банка. Верхний сценарий срабатывает первым.</p>
 </div>
 <div class="toolbar">
 <form method="POST" action="/panel/scenarios/reset">
+<input type="hidden" name="bank" value="%s">
 <button class="btn btn-ghost" type="submit" onclick="return confirm('Удалить все активные сценарии?')">Reset scenarios</button>
 </form>
 </div>
@@ -41,7 +53,7 @@ func (c *Controller) renderScenariosTab(w http.ResponseWriter) {
 <span>Выбери пресет, повтори нужный платёжный шаг в PG, затем проверь Card Payments и Request Log.</span>
 </div>
 <div class="scenario-metrics">
-`)
+`, bankTitle, b)
 	fmt.Fprintf(w, `<div class="scenario-metric"><span>Active</span><strong>%d</strong></div>`, len(scs))
 	fmt.Fprintf(w, `<div class="scenario-metric"><span>One-shot</span><strong>%d</strong></div>`, onceCount)
 	fmt.Fprintf(w, `<div class="scenario-metric"><span>Persistent</span><strong>%d</strong></div>`, persistentCount)
@@ -57,11 +69,11 @@ func (c *Controller) renderScenariosTab(w http.ResponseWriter) {
 
 <div class="scenario-presets">`)
 	for _, group := range []string{"Incidents", "Retry and timeouts", "Business declines", "Broken responses", "Data integrity"} {
-		fmt.Fprintf(w, `<section class="preset-card"><div class="preset-card-head"><h3>%s</h3><span>%d</span></div>`, group, presetGroupCount(group))
-		renderPresetGroup(w, group)
+		fmt.Fprintf(w, `<section class="preset-card"><div class="preset-card-head"><h3>%s</h3><span>%d</span></div>`, group, presetGroupCount(group, b))
+		renderPresetGroup(w, group, b)
 		fmt.Fprint(w, `</section>`)
 	}
-	fmt.Fprint(w, `</div>
+	fmt.Fprintf(w, `</div>
 
 <details class="panel-card advanced-card">
 <summary>
@@ -73,11 +85,12 @@ func (c *Controller) renderScenariosTab(w http.ResponseWriter) {
 </summary>
 
 <form method="POST" action="/panel/scenarios/add" class="scenario-form">
+<input type="hidden" name="bank" value="%s">
 <div class="row">
 <label>Endpoint
 <select name="endpoint">
-`)
-	for _, ep := range scenario.AllEndpoints {
+`, b)
+	for _, ep := range scenario.EndpointsFor(b) {
 		fmt.Fprintf(w, `<option value="%s">%s</option>`, ep, ep)
 	}
 	fmt.Fprint(w, `</select></label>
@@ -163,6 +176,7 @@ func (c *Controller) renderScenariosTab(w http.ResponseWriter) {
 <td>
 <form method="POST" action="/panel/scenarios/delete">
 <input type="hidden" name="id" value="%s">
+<input type="hidden" name="bank" value="%s">
 <button class="btn btn-danger" type="submit">Delete</button>
 </form>
 </td>
@@ -179,14 +193,15 @@ func (c *Controller) renderScenariosTab(w http.ResponseWriter) {
 			sc.HitCount,
 			sc.CreatedAt.Format("15:04:05"),
 			html.EscapeString(sc.ID),
+			b,
 		)
 	}
 	fmt.Fprint(w, `</table></div>`)
 }
 
-func renderPresetGroup(w http.ResponseWriter, group string) {
+func renderPresetGroup(w http.ResponseWriter, group string, b bank.Bank) {
 	empty := true
-	for _, p := range appscenario.AllPresets {
+	for _, p := range appscenario.PresetsFor(b) {
 		if scenarioPresetGroup(p.Name) != group {
 			continue
 		}
@@ -197,8 +212,9 @@ func renderPresetGroup(w http.ResponseWriter, group string) {
 <div class="preset-row">
 <form method="POST" action="/panel/scenarios/preset">
 <input type="hidden" name="preset" value="%s">
+<input type="hidden" name="bank" value="%s">
 <button class="btn %s" type="submit" title="%s">%s</button>
-</form>`, html.EscapeString(p.Description), html.EscapeString(p.Name), btnClass, html.EscapeString(p.Description), html.EscapeString(p.Title))
+</form>`, html.EscapeString(p.Description), html.EscapeString(p.Name), b, btnClass, html.EscapeString(p.Description), html.EscapeString(p.Title))
 		if p.Sample != "" {
 			fmt.Fprintf(w, `<details class="preset-details"><summary title="Что отдаст банк / увидит PG" aria-label="Что отдаст банк / увидит PG"><span>i</span></summary><pre>%s</pre></details>`, html.EscapeString(p.Sample))
 		}
@@ -209,9 +225,9 @@ func renderPresetGroup(w http.ResponseWriter, group string) {
 	}
 }
 
-func presetGroupCount(group string) int {
+func presetGroupCount(group string, b bank.Bank) int {
 	count := 0
-	for _, p := range appscenario.AllPresets {
+	for _, p := range appscenario.PresetsFor(b) {
 		if scenarioPresetGroup(p.Name) == group {
 			count++
 		}
@@ -226,12 +242,17 @@ func scenarioPresetGroup(name string) string {
 	case strings.Contains(name, "recovery") || strings.Contains(name, "failed_status"):
 		// hold_pending_recovery, capture_failed_status_*, cancel_failed_status_*, revoke_failed_status_*
 		return "Incidents"
-	case strings.Contains(name, "retry") || strings.Contains(name, "deadline"):
+	case strings.Contains(name, "postlink") || strings.Contains(name, "3ds_required") || strings.Contains(name, "wrong_invoice"):
+		// Epay postlink-инциденты, 3DS-челлендж, рассинхрон invoiceId.
+		return "Incidents"
+	case strings.Contains(name, "retry") || strings.Contains(name, "deadline") || strings.Contains(name, "timeout"):
 		return "Retry and timeouts"
 	case strings.Contains(name, "funds") || strings.Contains(name, "declined") || strings.Contains(name, "fraud") ||
-		strings.Contains(name, "expired") || strings.Contains(name, "3ds") || strings.Contains(name, "limit"):
+		strings.Contains(name, "expired") || strings.Contains(name, "3ds") || strings.Contains(name, "limit") ||
+		strings.Contains(name, "invalid_card") || strings.Contains(name, "unknown_error"):
 		return "Business declines"
-	case strings.Contains(name, "malformed") || strings.Contains(name, "empty") || strings.Contains(name, "slow"):
+	case strings.Contains(name, "malformed") || strings.Contains(name, "empty") || strings.Contains(name, "slow") ||
+		strings.Contains(name, "cryptopay_500"):
 		return "Broken responses"
 	default:
 		return "Data integrity"

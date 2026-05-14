@@ -19,9 +19,11 @@ import (
 	appqr "github.com/vevovip/chaospay/internal/application/qr"
 	appscenario "github.com/vevovip/chaospay/internal/application/scenario"
 	"github.com/vevovip/chaospay/internal/config"
+	infraepay "github.com/vevovip/chaospay/internal/infrastructure/epay"
 	"github.com/vevovip/chaospay/internal/infrastructure/memstore"
 	"github.com/vevovip/chaospay/internal/infrastructure/pgclient"
 	"github.com/vevovip/chaospay/internal/infrastructure/qrgen"
+	epayports "github.com/vevovip/chaospay/internal/ports/api/epay"
 	"github.com/vevovip/chaospay/internal/ports/api/health"
 	"github.com/vevovip/chaospay/internal/ports/api/loyalty"
 	payports "github.com/vevovip/chaospay/internal/ports/api/pay"
@@ -42,10 +44,12 @@ func main() {
 	payWebhookClient := pgclient.NewPayClient(cfg.PayWebhookURL, cfg.Secret)
 	cardWebhookClient := pgclient.NewCardClient(cfg.CardWebhookURL, cfg.Secret)
 	qrWebhookClient := pgclient.NewQRClient(cfg.QRWebhookURL)
+	epayWebhookClient := pgclient.NewEpayClient(cfg.EpaySuccessWebhookURL, cfg.EpayFailureWebhookURL, cfg.EpayBindWebhookURL)
+	epayTokens := infraepay.NewTokenStore()
 	qrGenerator := qrgen.NewGenerator("")
 
 	// Application
-	payService := apppay.NewService(payRepo, payWebhookClient, cardWebhookClient, cfg.AutoWebhook)
+	payService := apppay.NewService(payRepo, payWebhookClient, cardWebhookClient, epayWebhookClient, cfg.AutoWebhook)
 	qrService := appqr.NewService(qrRepo, qrGenerator, qrgen.GenerateUUID, qrWebhookClient)
 	scenarioService := appscenario.NewService(scenarioStore)
 
@@ -59,6 +63,12 @@ func main() {
 	walletCtrl := walletports.NewController(payService, scenarioService, requestLog)
 	qrCtrl := qrports.NewController(qrService, cfg.GlobalDelaySeconds)
 	loyaltyCtrl := loyalty.NewController(cfg.GlobalDelaySeconds, cfg.LoyaltyCashbackPercent, cfg.LoyaltyCashbackBalance)
+	epayCtrl := epayports.NewController(payService, scenarioService, requestLog, epayTokens, epayWebhookClient, epayports.Config{
+		Creds:              map[string]string{cfg.EpayClientID: cfg.EpayClientSecret},
+		TerminalUUID:       cfg.EpayTerminalUUID,
+		AutoWebhook:        cfg.EpayAutoWebhook,
+		GlobalDelaySeconds: cfg.GlobalDelaySeconds,
+	})
 	panelCtrl := panel.NewController(payService, qrService, scenarioService, requestLog, cfg)
 
 	mux := http.NewServeMux()
@@ -66,6 +76,7 @@ func main() {
 	walletCtrl.Register(mux)
 	qrCtrl.Register(mux)
 	loyaltyCtrl.Register(mux)
+	epayCtrl.Register(mux)
 	panelCtrl.Register(mux)
 	health.Register(mux)
 
@@ -99,10 +110,20 @@ func logRoutes(cfg config.Config) {
 	log.Println("    POST /v1/merchant/{id}/cardstorage/add2   (AddCard)")
 	log.Println("    POST /v1/merchant/{id}/cardstorage/remove (RemoveCard)")
 	log.Println("    POST /pay/{paymentID}/pay           (ApplePay JSON / GooglePay form)")
+	log.Println("  Halyk Epay v2 JSON:")
+	log.Println("    POST /oauth2/token                          (OAuth — выдача access_token)")
+	log.Println("    POST /api/payment/cryptopay                 (Cryptopay: новая карта / ApplePay)")
+	log.Println("    POST /api/payments/cards/auth               (Сохранённая карта)")
+	log.Println("    POST /api/operation/{id}/charge             (Charge)")
+	log.Println("    POST /api/operation/{id}/cancel             (Cancel)")
+	log.Println("    POST /api/operation/{id}/refund?amount=…    (Refund)")
 	log.Println("  Panel:")
-	log.Println("    GET  /panel              (tabs: cards, qr, scenarios, log, settings)")
-	log.Println("    GET  /qr-panel           (alias → /panel?tab=qr)")
-	log.Printf("  QR Webhook URL:   %s", cfg.QRWebhookURL)
-	log.Printf("  Pay Webhook URL:  %s", cfg.PayWebhookURL)
-	log.Printf("  Card Webhook URL: %s", cfg.CardWebhookURL)
+	log.Println("    GET  /panel?bank=<freedom|epay|qr|loyalty>&tab=<cards|scenarios|log>")
+	log.Println("    GET  /qr-panel           (alias → /panel?bank=qr&tab=qr)")
+	log.Printf("  QR Webhook URL:        %s", cfg.QRWebhookURL)
+	log.Printf("  Pay Webhook URL:       %s", cfg.PayWebhookURL)
+	log.Printf("  Card Webhook URL:      %s", cfg.CardWebhookURL)
+	log.Printf("  Epay Postlink URL:     %s", cfg.EpaySuccessWebhookURL)
+	log.Printf("  Epay Failure URL:      %s", cfg.EpayFailureWebhookURL)
+	log.Printf("  Epay Bind Postlink URL:%s", cfg.EpayBindWebhookURL)
 }

@@ -5,11 +5,23 @@ import (
 	"net/http"
 	"strconv"
 
+	"github.com/vevovip/chaospay/internal/domain/bank"
 	domainpay "github.com/vevovip/chaospay/internal/domain/pay"
 )
 
-func (c *Controller) renderCardsTab(w http.ResponseWriter) {
-	records := c.pay.Repo().List()
+func (c *Controller) renderCardsTab(w http.ResponseWriter, b bank.Bank) {
+	all := c.pay.Repo().List()
+	records := make([]*domainpay.Record, 0, len(all))
+	for _, r := range all {
+		// Freedom-записи у нас существующие со «старым» полем Bank="" — считаем их Freedom.
+		recBank := r.Bank
+		if recBank == bank.Any {
+			recBank = bank.Freedom
+		}
+		if recBank == b {
+			records = append(records, r)
+		}
+	}
 
 	counts := map[domainpay.Status]int{}
 	for _, r := range records {
@@ -21,13 +33,27 @@ func (c *Controller) renderCardsTab(w http.ResponseWriter) {
 		resetDisabled = " disabled"
 	}
 
+	payWebhook := c.cfg.PayWebhookURL
+	cardWebhook := c.cfg.CardWebhookURL
+	autoWebhook := c.cfg.AutoWebhook
+	title := "Freedom Pay — Card Payments"
+	hint := "Управление saved-card, PayPage, Apple Pay, Google Pay и bind-card платежами."
+	if b == bank.Epay {
+		payWebhook = c.cfg.EpaySuccessWebhookURL
+		cardWebhook = c.cfg.EpayBindWebhookURL
+		autoWebhook = c.cfg.EpayAutoWebhook
+		title = "Halyk Epay — Card Payments"
+		hint = "Cryptopay/Card Auth (новая/сохранённая карта), Apple Pay, bind-card."
+	}
+
 	fmt.Fprintf(w, `<div class="section-header">
 <div class="section-title">
-<h2>Card Payments</h2>
-<p>Управление saved-card, PayPage, Apple Pay, Google Pay и bind-card платежами.</p>
+<h2>%s</h2>
+<p>%s</p>
 </div>
 <div class="toolbar">
 <form method="POST" action="/panel/cards/reset">
+<input type="hidden" name="bank" value="%s">
 <button type="submit" class="btn btn-ghost"%s onclick="return confirm('Удалить все карточные платежи?')">Reset card payments</button>
 </form>
 </div>
@@ -39,7 +65,7 @@ func (c *Controller) renderCardsTab(w http.ResponseWriter) {
 <div class="key">Card-bind webhook</div><div class="val">%s</div>
 <div class="key">Auto-webhook</div><div class="val">%v</div>
 </div>
-</div>`, resetDisabled, c.cfg.PayWebhookURL, c.cfg.CardWebhookURL, c.cfg.AutoWebhook)
+</div>`, title, hint, b, resetDisabled, payWebhook, cardWebhook, autoWebhook)
 
 	fmt.Fprintf(w, `<div class="stats"><span class="stat stat-total">Total: %d</span>`, len(records))
 	for _, s := range []domainpay.Status{
@@ -60,12 +86,12 @@ func (c *Controller) renderCardsTab(w http.ResponseWriter) {
 <th>Payment ID</th><th>Order ID</th><th>Kind</th><th>Term</th><th>Status</th><th>Amount</th><th>Captured / Refunded</th><th>Card</th><th>Created / Auth</th><th>Next</th><th>Actions</th>
 </tr>`)
 		for _, rec := range records {
-			renderCardRow(w, rec)
+			renderCardRow(w, rec, b)
 		}
 		fmt.Fprint(w, `</table></div>`)
 	}
 
-	fmt.Fprint(w, `<div class="panel-card" style="margin-top:24px;">
+	fmt.Fprintf(w, `<div class="panel-card" style="margin-top:24px;">
 <div class="section-header">
 <div class="section-title">
 <h2>Add Test Payment</h2>
@@ -74,6 +100,7 @@ func (c *Controller) renderCardsTab(w http.ResponseWriter) {
 </div>
 <form method="POST" action="/panel/cards/action">
 <input type="hidden" name="action" value="create_synthetic">
+<input type="hidden" name="bank" value="%s">
 <div class="scenario-form" style="margin-bottom:0;">
 <div class="row">
 <label>Order ID<input type="number" name="order_id" value="" required></label>
@@ -87,10 +114,10 @@ func (c *Controller) renderCardsTab(w http.ResponseWriter) {
 </div>
 <button class="btn btn-primary" type="submit">Create test payment</button>
 </div>
-</form></div>`)
+</form></div>`, b)
 }
 
-func renderCardRow(w http.ResponseWriter, rec *domainpay.Record) {
+func renderCardRow(w http.ResponseWriter, rec *domainpay.Record, b bank.Bank) {
 	fmt.Fprint(w, `<tr>`)
 	fmt.Fprintf(w, `<td class="uuid-cell" onclick="copyText(this, '%d')">%d<span class="copy-hint">click to copy</span></td>`,
 		rec.PaymentID, rec.PaymentID)
@@ -112,19 +139,19 @@ func renderCardRow(w http.ResponseWriter, rec *domainpay.Record) {
 
 	fmt.Fprint(w, `<td><div class="actions">`)
 	pid := strconv.FormatUint(uint64(rec.PaymentID), 10)
-	if rec.Kind == domainpay.KindBind {
-		actionButton(w, pid, "send_card_webhook", "btn-purple", "Send Card-Bind Webhook")
+	if rec.Kind == domainpay.KindBind || rec.Kind == domainpay.KindEpayBind {
+		actionButton(w, pid, "send_card_webhook", "btn-purple", "Send Card-Bind Webhook", b)
 	} else {
 		switch rec.Status {
 		case domainpay.StatusNew, domainpay.StatusHoldPending:
-			actionButton(w, pid, "force_authorized", "btn-primary", "Authorize")
-			actionButton(w, pid, "force_failed", "btn-danger", "Fail")
+			actionButton(w, pid, "force_authorized", "btn-primary", "Authorize", b)
+			actionButton(w, pid, "force_failed", "btn-danger", "Fail", b)
 		case domainpay.StatusAuthorized:
-			actionButton(w, pid, "force_captured", "btn-success", "Capture")
-			actionButton(w, pid, "force_cancelled", "btn-warning", "Cancel")
-			actionButton(w, pid, "force_failed", "btn-danger", "Fail")
+			actionButton(w, pid, "force_captured", "btn-success", "Capture", b)
+			actionButton(w, pid, "force_cancelled", "btn-warning", "Cancel", b)
+			actionButton(w, pid, "force_failed", "btn-danger", "Fail", b)
 		case domainpay.StatusCaptured, domainpay.StatusPartialRefunded:
-			actionButton(w, pid, "force_refunded", "btn-purple", "Refund")
+			actionButton(w, pid, "force_refunded", "btn-purple", "Refund", b)
 		}
 		webhookBtn := "Webhook"
 		webhookCls := "btn-purple"
@@ -135,9 +162,10 @@ func renderCardRow(w http.ResponseWriter, rec *domainpay.Record) {
 		fmt.Fprintf(w, `
 <form method="POST" action="/panel/cards/webhook">
 <input type="hidden" name="payment_id" value="%s">
+<input type="hidden" name="bank" value="%s">
 <input type="hidden" name="result" value="ok">
 <button type="submit" class="btn %s">%s</button>
-</form>`, pid, webhookCls, webhookBtn)
+</form>`, pid, b, webhookCls, webhookBtn)
 	}
 	fmt.Fprint(w, `</div></td>`)
 	fmt.Fprint(w, `</tr>`)
@@ -172,11 +200,12 @@ func cardNextStep(rec *domainpay.Record) (string, string) {
 	}
 }
 
-func actionButton(w http.ResponseWriter, paymentID, action, cls, label string) {
+func actionButton(w http.ResponseWriter, paymentID, action, cls, label string, b bank.Bank) {
 	fmt.Fprintf(w, `
 <form method="POST" action="/panel/cards/action">
 <input type="hidden" name="payment_id" value="%s">
 <input type="hidden" name="action" value="%s">
+<input type="hidden" name="bank" value="%s">
 <button type="submit" class="btn %s">%s</button>
-</form>`, paymentID, action, cls, label)
+</form>`, paymentID, action, b, cls, label)
 }

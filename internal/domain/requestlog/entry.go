@@ -1,12 +1,17 @@
 // Package requestlog описывает запись HTTP-запроса для UI журнала.
 package requestlog
 
-import "time"
+import (
+	"time"
+
+	"github.com/vevovip/chaospay/internal/domain/bank"
+)
 
 // Entry — одна запись.
 type Entry struct {
 	ID           uint64
 	At           time.Time
+	Bank         bank.Bank
 	Method       string
 	URL          string
 	Endpoint     string

@@ -3,22 +3,41 @@ package panel
 import (
 	"fmt"
 	"net/http"
+
+	"github.com/vevovip/chaospay/internal/domain/bank"
+	"github.com/vevovip/chaospay/internal/domain/requestlog"
 )
 
-func (c *Controller) renderLogTab(w http.ResponseWriter) {
-	entries := c.log.List()
+func (c *Controller) renderLogTab(w http.ResponseWriter, b bank.Bank) {
+	all := c.log.List()
+	entries := make([]*requestlog.Entry, 0, len(all))
+	for _, e := range all {
+		eb := e.Bank
+		if eb == bank.Any {
+			eb = bank.FromPath(e.URL)
+		}
+		if b == bank.Any || eb == b {
+			entries = append(entries, e)
+		}
+	}
+
+	bankTitle := bank.Titles[b]
+	if bankTitle == "" {
+		bankTitle = "All banks"
+	}
 
 	fmt.Fprintf(w, `<div class="section-header">
 <div class="section-title">
-<h2>Request Log</h2>
+<h2>%s — Request Log</h2>
 <p>Последние %d запросов к моку. Нажми на строку, чтобы раскрыть request/response без ухода со страницы.</p>
 </div>
 <div class="toolbar">
 <form method="POST" action="/panel/log/reset">
+<input type="hidden" name="bank" value="%s">
 <button class="btn btn-ghost" type="submit" onclick="return confirm('Очистить журнал запросов?')">Reset log</button>
 </form>
 </div>
-</div>`, len(entries))
+</div>`, bankTitle, len(entries), b)
 
 	if len(entries) == 0 {
 		fmt.Fprint(w, `<div class="empty">Журнал пуст. Сделай хотя бы один запрос на мок (или PG-flow), и записи появятся здесь.</div>`)

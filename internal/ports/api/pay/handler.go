@@ -11,6 +11,7 @@ import (
 
 	apppay "github.com/vevovip/chaospay/internal/application/pay"
 	appscenario "github.com/vevovip/chaospay/internal/application/scenario"
+	"github.com/vevovip/chaospay/internal/domain/bank"
 	"github.com/vevovip/chaospay/internal/domain/requestlog"
 	"github.com/vevovip/chaospay/internal/domain/scenario"
 	"github.com/vevovip/chaospay/internal/infrastructure/freedompay"
@@ -88,7 +89,7 @@ func (c *Controller) Register(mux *http.ServeMux) {
 func (c *Controller) xmlEndpoint(endpoint, responseScriptName string, fn xmlHandler) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		started := time.Now()
-		entry := &requestlog.Entry{Method: r.Method, URL: r.URL.Path, Endpoint: endpoint}
+		entry := &requestlog.Entry{Method: r.Method, URL: r.URL.Path, Endpoint: endpoint, Bank: bank.Freedom}
 
 		bodyBytes, _ := io.ReadAll(r.Body)
 		_ = r.Body.Close()
@@ -132,6 +133,7 @@ func (c *Controller) xmlEndpoint(endpoint, responseScriptName string, fn xmlHand
 
 		// Scenario match
 		sc := c.scenarios.Match(scenario.MatchInput{
+			Bank:       bank.Freedom,
 			Endpoint:   endpoint,
 			PaymentID:  entry.PaymentID,
 			OrderID:    entry.OrderID,

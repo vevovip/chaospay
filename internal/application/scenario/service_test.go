@@ -199,3 +199,157 @@ func TestAllPresets_HaveSamples(t *testing.T) {
 		}
 	}
 }
+
+func TestAllPresets_BankSetForAllExceptKnownWildcards(t *testing.T) {
+	// Каждый preset должен иметь Bank != Any (или быть в whitelist).
+	wildcardOK := map[string]bool{"context_deadline": true}
+	for _, p := range AllPresets {
+		if p.Bank == "" && !wildcardOK[p.Name] {
+			t.Errorf("preset %q has empty Bank — добавь в Bank: bank.<X>", p.Name)
+		}
+	}
+}
+
+func TestApplyPreset_Epay_BusinessErrors_RealHalykCodes(t *testing.T) {
+	// Reason-коды должны соответствовать real Halyk Epay error_mapping.go в PG.
+	cases := map[string]string{
+		"epay_insufficient_funds": "484",
+		"epay_card_expired":       "478",
+		"epay_invalid_card":       "457",
+		"epay_declined_by_issuer": "455",
+		"epay_limit_exceeded":     "486",
+		"epay_unknown_error":      "477",
+	}
+	for name, wantCode := range cases {
+		name := name
+		wantCode := wantCode
+		t.Run(name, func(t *testing.T) {
+			store := &fakeStore{}
+			s := NewService(store)
+			s.ApplyPreset(name)
+			if len(store.items) != 1 {
+				t.Fatalf("preset should add 1 scenario, got %d", len(store.items))
+			}
+			sc := store.items[0]
+			if sc.Action != dscenario.ActionForceFailure {
+				t.Errorf("action = %s, want force_failure", sc.Action)
+			}
+			if sc.Params["reason_code"] != wantCode {
+				t.Errorf("reason_code = %s, want %s", sc.Params["reason_code"], wantCode)
+			}
+		})
+	}
+}
+
+func TestApplyPreset_Epay_PostlinkRaceFlows(t *testing.T) {
+	cases := []struct {
+		name       string
+		wantAction dscenario.Action
+	}{
+		{"epay_postlink_lost", dscenario.ActionPostlinkLost},
+		{"epay_postlink_double", dscenario.ActionPostlinkDouble},
+		{"epay_postlink_before_ack", dscenario.ActionPostlinkBeforeAck},
+	}
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			store := &fakeStore{}
+			s := NewService(store)
+			s.ApplyPreset(tc.name)
+			if len(store.items) != 1 {
+				t.Fatalf("got %d", len(store.items))
+			}
+			if store.items[0].Action != tc.wantAction {
+				t.Errorf("action = %s, want %s", store.items[0].Action, tc.wantAction)
+			}
+			if store.items[0].Endpoint != dscenario.EndpointEpayCharge {
+				t.Errorf("endpoint = %s, want %s", store.items[0].Endpoint, dscenario.EndpointEpayCharge)
+			}
+		})
+	}
+}
+
+func TestApplyPreset_Epay_HTTPStatuses(t *testing.T) {
+	cases := map[string]dscenario.Action{
+		"epay_unauthorized_401":   dscenario.ActionForceUnauthorized,
+		"epay_forbidden_403":      dscenario.ActionForceForbidden,
+		"epay_oauth_unauthorized": dscenario.ActionForceUnauthorized,
+	}
+	for name, want := range cases {
+		name := name
+		want := want
+		t.Run(name, func(t *testing.T) {
+			store := &fakeStore{}
+			s := NewService(store)
+			s.ApplyPreset(name)
+			if len(store.items) != 1 {
+				t.Fatalf("got %d", len(store.items))
+			}
+			if store.items[0].Action != want {
+				t.Errorf("action = %s, want %s", store.items[0].Action, want)
+			}
+		})
+	}
+}
+
+func TestApplyPreset_Epay_Ambiguous(t *testing.T) {
+	cases := []struct {
+		name, wantEndpoint string
+	}{
+		{"epay_ambiguous_charge_recovery", dscenario.EndpointEpayCharge},
+		{"epay_ambiguous_authorize_recovery", dscenario.EndpointEpayCryptopay},
+	}
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			store := &fakeStore{}
+			s := NewService(store)
+			s.ApplyPreset(tc.name)
+			if len(store.items) != 1 {
+				t.Fatalf("got %d", len(store.items))
+			}
+			sc := store.items[0]
+			if sc.Action != dscenario.ActionEpayAmbiguous {
+				t.Errorf("action = %s, want %s", sc.Action, dscenario.ActionEpayAmbiguous)
+			}
+			if sc.Endpoint != tc.wantEndpoint {
+				t.Errorf("endpoint = %s, want %s", sc.Endpoint, tc.wantEndpoint)
+			}
+			if sc.Params["reason_code"] != "477" {
+				t.Errorf("reason_code = %s, want 477", sc.Params["reason_code"])
+			}
+		})
+	}
+}
+
+func TestApplyPreset_Epay_TransientRetry(t *testing.T) {
+	store := &fakeStore{}
+	s := NewService(store)
+	s.ApplyPreset("epay_transient_500_then_ok")
+	if len(store.items) != 1 {
+		t.Fatalf("got %d", len(store.items))
+	}
+	sc := store.items[0]
+	if sc.Action != dscenario.ActionTransientFailure {
+		t.Errorf("action = %s, want transient_failure", sc.Action)
+	}
+	if sc.ConsumeOnce {
+		t.Error("transient retry preset must NOT be consume_once (HitCount-based)")
+	}
+	if sc.Params["http_status"] != "500" {
+		t.Errorf("http_status = %s, want 500", sc.Params["http_status"])
+	}
+}
+
+func TestPresetsFor_FiltersByBank(t *testing.T) {
+	freedom := PresetsFor("freedom")
+	epay := PresetsFor("epay")
+	any := PresetsFor("")
+
+	if len(freedom) == 0 || len(epay) == 0 {
+		t.Fatalf("freedom=%d epay=%d both must be > 0", len(freedom), len(epay))
+	}
+	if len(any) < len(freedom)+len(epay) {
+		t.Errorf("PresetsFor(Any) = %d, want >= freedom+epay = %d", len(any), len(freedom)+len(epay))
+	}
+}

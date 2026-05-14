@@ -11,6 +11,9 @@ var ErrAlreadyAuthorized = errors.New("payment already authorized")
 // ErrInvalidState — невалидный статус для операции.
 var ErrInvalidState = errors.New("invalid state for operation")
 
+// ErrEpayWebhookNotConfigured — попытка отправить Epay-postlink без сконфигурированного клиента.
+var ErrEpayWebhookNotConfigured = errors.New("epay webhook is not configured")
+
 // HoldInitInput — параметры HoldInit.
 type HoldInitInput struct {
 	OrderID        uint
