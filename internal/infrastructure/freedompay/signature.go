@@ -85,6 +85,8 @@ func (m OrdMap) WithoutKey(key string) OrdMap {
 }
 
 // Sign возвращает MD5-подпись по тем же правилам, что и FreedomPay SDK на стороне PG.
+// Пустые значения игнорируются — PG SDK не включает их в подпись (omitempty в ToSortableMap),
+// но при этом некоторые поля могут уходить в XML без omitempty. Реальный Freedom ведёт себя так же.
 func Sign(scriptName string, m OrdMap, secretKey string) string {
 	parts := []string{}
 	if scriptName != "" {
@@ -119,12 +121,22 @@ func collectValues(v any) []string {
 		}
 		return out
 	case string:
+		if val == "" {
+			return nil
+		}
 		return []string{val}
 	case []byte:
+		if len(val) == 0 {
+			return nil
+		}
 		return []string{string(val)}
 	default:
 		// несовместимый тип — приводим к строке через %v.
-		return []string{fmt.Sprintf("%v", val)}
+		s := fmt.Sprintf("%v", val)
+		if s == "" {
+			return nil
+		}
+		return []string{s}
 	}
 }
 

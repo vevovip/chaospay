@@ -99,6 +99,48 @@ var AllPresets = []PresetInfo{
 # PG-лог: "reconciliation: recovered payment from false fail"`,
 	},
 	{
+		Name: "ex1001_silent_hold", Bank: bank.Freedom, Title: "🕳 EX-1001 silent hold",
+		Description: "direct отвечает ошибкой, но банк параллельно холдирует деньги и шлёт success-webhook (pg_result=1)",
+		Sample: `# Production-кейс EX-1001: банк синхронно сказал «ошибка»,
+# но в реальности захолдировал платёж и асинхронно подтверждает через webhook.
+
+# Шаг 1: direct → синхронно ошибка
+<response>
+  <pg_status>error</pg_status>
+  <pg_error_code>120</pg_error_code>
+  <pg_error_description>Неверный статус платежа</pg_error_description>
+  <pg_salt>...</pg_salt><pg_sig>...</pg_sig>
+</response>
+
+# Шаг 2 (асинхронно, ~миллисекунды позже):
+# chaospay переводит запись в Authorized и шлёт webhook на PG:
+#   POST /api/v1/payment-gateway/webhook/freedompay
+#   pg_result=1, pg_payment_id=..., pg_amount=...
+
+# PG-поведение сейчас (до фикса):
+#   1) direct error → MarkAsFailed → AMQP order.failed
+#   2) webhook success → Finalizer.MarkAsAuthorized → ErrOrderWrongStatus (из Failed нельзя)
+#   Итог: у банка hold, у нас Failed.`,
+	},
+	{
+		Name: "ex1001_wallet_silent_hold", Bank: bank.Freedom, Title: "🕳 EX-1001 wallet silent hold",
+		Description: "applepay/googlepay отвечают ошибкой, но банк параллельно холдирует деньги и шлёт success-webhook",
+		Sample: `# Аналог EX-1001, но для Apple/Google Pay (endpoint /pay/{id}/pay).
+# Wallet синхронно отдаёт JSON-ошибку, мок параллельно холдирует и шлёт webhook.
+
+# Шаг 1: /pay/{id}/pay → JSON-ошибка
+{"data":{"status":"error","message":"Неверный статус платежа"}}
+
+# Шаг 2 (асинхронно):
+#   POST /api/v1/payment-gateway/webhook/freedompay
+#   pg_result=1, pg_payment_id=..., pg_amount=...
+
+# Ожидаемое поведение PG:
+#   1) wallet error → MarkAsFailed (фраза "Неверный статус платежа" — ambiguous-маркер)
+#   2) webhook success на Failed-заказе → Resolver → cancel у PSP
+#   3) Заказ переходит в AutoRefunded, deньги отменены`,
+	},
+	{
 		Name: "hold_pending_recovery", Bank: bank.Freedom, Title: "🔄 Hold pending → recovery",
 		Description: "Hold вернул pg_payment_status=process → PG авто-Status → success (без ambiguous-marker)",
 		Sample: `# Шаг 1: direct отдаёт ok-ответ, но pg_payment_status=process (pending)
@@ -714,6 +756,13 @@ func (s *Service) ApplyPreset(name string) { //nolint:gocyclo,funlen
 	case "ex1001":
 		add("direct", scenario.ActionAmbiguousError, map[string]string{"message": "Неверный статус платежа", "error_code": "120"}, true)
 		add("get_status3.php", scenario.ActionForceStatus, map[string]string{"payment_status": "success"}, true)
+	case "ex1001_silent_hold":
+		// direct синхронно отвечает ошибкой, но мок параллельно холдирует и шлёт success-webhook.
+		add("direct", scenario.ActionSyncErrorAsyncWebhook, map[string]string{"message": "Неверный статус платежа", "error_code": "120"}, true)
+	case "ex1001_wallet_silent_hold":
+		// applepay/googlepay синхронно отвечают JSON-ошибкой, но мок параллельно холдирует и шлёт success-webhook.
+		add("applepay", scenario.ActionSyncErrorAsyncWebhook, map[string]string{"message": "Неверный статус платежа"}, true)
+		add("googlepay", scenario.ActionSyncErrorAsyncWebhook, map[string]string{"message": "Неверный статус платежа"}, true)
 	case "hold_pending_recovery":
 		// Шаг 1: Hold отвечает ok с pg_payment_status=process (pending).
 		// Шаг 2: Авто-Status (без ReconcilingClient) подтверждает success.

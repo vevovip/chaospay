@@ -98,6 +98,19 @@ func (c *Controller) handlePay(w http.ResponseWriter, r *http.Request) {
 			c.respondWalletError(w, msg)
 			c.finalize(entry, started, http.StatusOK, msg)
 			return
+		case scenario.ActionSyncErrorAsyncWebhook:
+			// EX-1001 для wallet: синхронно отдаём ошибку, асинхронно холдируем платёж
+			// (Hold сам пошлёт success-webhook на PG из pgclient).
+			msg := scenario.Param(sc, "message", "Неверный статус платежа")
+			c.respondWalletError(w, msg)
+			c.finalize(entry, started, http.StatusOK, msg)
+
+			go func(pid uint) {
+				if _, holdErr := c.svc.Hold(pid); holdErr != nil {
+					log.Printf("[wallet sync_error_async_webhook] hold(%d) failed: %v", pid, holdErr)
+				}
+			}(uint(paymentID))
+			return
 		}
 	}
 
