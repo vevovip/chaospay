@@ -49,9 +49,11 @@ func (s *Service) EpayAuthorize(in EpayAuthorizeInput) (*pay.Record, error) {
 	currency := defaultStr(in.Currency, "KZT")
 	invoiceID := in.InvoiceID
 
+	paymentID := s.repo.NextPaymentID()
 	rec := &pay.Record{
 		Bank:                   bank.Epay,
-		PaymentID:              s.repo.NextPaymentID(),
+		PaymentID:              paymentID,
+		Reference:              referenceBase + paymentID,
 		OrderID:                in.OrderID,
 		Kind:                   kind,
 		Amount:                 uint(in.Amount), //nolint:gosec // amount > 0 проверено выше

@@ -121,8 +121,10 @@ func (s *Service) HoldInit(in HoldInitInput) (*pay.Record, error) {
 		return nil, errors.New("user id is required")
 	}
 
+	paymentID := s.repo.NextPaymentID()
 	rec := &pay.Record{
-		PaymentID:      s.repo.NextPaymentID(),
+		PaymentID:      paymentID,
+		Reference:      referenceBase + paymentID,
 		OrderID:        in.OrderID,
 		MerchantID:     in.MerchantID,
 		TerminalID:     in.TerminalID,
@@ -161,6 +163,7 @@ func (s *Service) Hold(paymentID uint) (*pay.Record, error) {
 	if errT != nil {
 		return nil, errT
 	}
+	updated = s.ensureReference(paymentID, updated)
 	s.maybeWebhook(updated, true, false)
 	return updated, nil
 }
@@ -238,8 +241,10 @@ func (s *Service) CreateHosted(in HostedInput) (*pay.Record, error) {
 	if in.OrderID == 0 || in.Amount == 0 {
 		return nil, errors.New("order_id and amount required")
 	}
+	paymentID := s.repo.NextPaymentID()
 	rec := &pay.Record{
-		PaymentID:         s.repo.NextPaymentID(),
+		PaymentID:         paymentID,
+		Reference:         referenceBase + paymentID,
 		OrderID:           in.OrderID,
 		MerchantID:        in.MerchantID,
 		TerminalID:        in.TerminalID,
@@ -262,8 +267,10 @@ func (s *Service) CreateBind(in BindInput) (*pay.Record, error) {
 	if in.UserID == 0 {
 		return nil, errors.New("user id is required")
 	}
+	paymentID := s.repo.NextPaymentID()
 	rec := &pay.Record{
-		PaymentID:       s.repo.NextPaymentID(),
+		PaymentID:       paymentID,
+		Reference:       referenceBase + paymentID,
 		OrderID:         in.OrderID,
 		MerchantID:      in.MerchantID,
 		TerminalID:      in.TerminalID,
@@ -299,6 +306,7 @@ func (s *Service) AuthorizeWallet(paymentID uint, kind pay.Kind) (*pay.Record, e
 			return r.Status, "", nil
 		})
 	}
+	updated = s.ensureReference(paymentID, updated)
 	_ = rec
 	s.maybeWebhook(updated, true, false)
 	return updated, nil
@@ -344,12 +352,40 @@ func (s *Service) ApplyForce(paymentID uint, target pay.Status) (*pay.Record, er
 	if err != nil {
 		return nil, err
 	}
+	if target == pay.StatusAuthorized || target == pay.StatusCaptured {
+		updated = s.ensureReference(paymentID, updated)
+	}
 	if s.autoWebhook {
 		success := target == pay.StatusAuthorized || target == pay.StatusCaptured
 		captured := target == pay.StatusCaptured
 		go func() { _, _ = s.webhook.Send(updated, success, captured) }()
 	}
 	return updated, nil
+}
+
+// referenceBase — стартовое 12-значное число для генерации auth-code,
+// похожего на pg_reference от реального Freedom (например, "613554121756").
+const referenceBase uint = 613554000000
+
+// ensureReference выставляет Reference у платежа при переходе в Authorized/Captured.
+// В реальном Freedom auth-code (pg_reference) появляется в момент авторизации
+// и возвращается в get_status3.php. Мок этим занимается тут, чтобы PG-сторона
+// (включая reconciliation recovery) видела непустой reference.
+func (s *Service) ensureReference(paymentID uint, rec *pay.Record) *pay.Record {
+	if rec == nil || rec.Reference != 0 {
+		return rec
+	}
+	updated, err := s.repo.Update(paymentID, func(r *pay.Record) (pay.Status, string, error) {
+		if r.Reference == 0 {
+			r.Reference = referenceBase + r.PaymentID
+		}
+		return r.Status, "", nil
+	})
+	if err != nil {
+		return rec
+	}
+
+	return updated
 }
 
 func (s *Service) maybeWebhook(rec *pay.Record, success, captured bool) {

@@ -83,7 +83,7 @@ func (c *Controller) renderCardsTab(w http.ResponseWriter, b bank.Bank) {
 	} else {
 		fmt.Fprint(w, `<div class="table-wrap"><table>
 <tr>
-<th>Payment ID</th><th>Order ID</th><th>Kind</th><th>Term</th><th>Status</th><th>Amount</th><th>Captured / Refunded</th><th>Card</th><th>Created / Auth</th><th>Next</th><th>Actions</th>
+<th>Payment ID</th><th>Reference</th><th>Order ID</th><th>Kind</th><th>Term</th><th>Status</th><th>Amount</th><th>Captured / Refunded</th><th>Card</th><th>Created / Auth</th><th>Next</th><th>Actions</th>
 </tr>`)
 		for _, rec := range records {
 			renderCardRow(w, rec, b)
@@ -121,6 +121,12 @@ func renderCardRow(w http.ResponseWriter, rec *domainpay.Record, b bank.Bank) {
 	fmt.Fprint(w, `<tr>`)
 	fmt.Fprintf(w, `<td class="uuid-cell" onclick="copyText(this, '%d')">%d<span class="copy-hint">click to copy</span></td>`,
 		rec.PaymentID, rec.PaymentID)
+	if rec.Reference != 0 {
+		fmt.Fprintf(w, `<td class="uuid-cell" onclick="copyText(this, '%d')">%d<span class="copy-hint">click to copy</span></td>`,
+			rec.Reference, rec.Reference)
+	} else {
+		fmt.Fprint(w, `<td><span class="muted">-</span></td>`)
+	}
 	fmt.Fprintf(w, `<td>%d</td>`, rec.OrderID)
 	fmt.Fprintf(w, `<td><span class="badge badge-NEW">%s</span></td>`, rec.Kind)
 	fmt.Fprintf(w, `<td>%d</td>`, rec.TerminalID)
