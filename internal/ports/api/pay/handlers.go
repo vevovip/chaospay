@@ -81,14 +81,16 @@ func (c *Controller) handleHold(req *freedompay.ParsedRequest, _ *scenario.Scena
 }
 
 // handleStatus — POST /get_status3.php
+// Freedom находит платёж по pg_payment_id или по pg_order_id (если pg_payment_id=0).
 func (c *Controller) handleStatus(req *freedompay.ParsedRequest, _ *scenario.Scenario) (freedompay.OrdMap, error) {
 	paymentID := uintFromReq(req, "pg_payment_id", 0)
-	if paymentID == 0 {
-		return nil, errors.New("payment id is required")
+	orderID := uintFromReq(req, "pg_order_id", 0)
+	if paymentID == 0 && orderID == 0 {
+		return nil, errors.New("payment id or order id is required")
 	}
-	rec, err := c.svc.Repo().Get(paymentID)
+	rec, err := findStatusRecord(c.svc.Repo(), paymentID, orderID)
 	if err != nil {
-		return nil, errors.New("payment not found")
+		return nil, err
 	}
 
 	out := freedompay.OrdMap{}
@@ -239,6 +241,24 @@ func (c *Controller) handleRemoveCard(_ *freedompay.ParsedRequest, _ *scenario.S
 	out := freedompay.OrdMap{}
 	out = out.Set("pg_status", "ok")
 	return out, nil
+}
+
+// findStatusRecord ищет платёж по paymentID, либо (если он пустой) по orderID.
+// Реальный Freedom get_status3.php допускает оба варианта поиска.
+func findStatusRecord(repo apppay.Repository, paymentID, orderID uint) (*domainpay.Record, error) {
+	if paymentID != 0 {
+		rec, err := repo.Get(paymentID)
+		if err != nil {
+			return nil, errors.New("payment not found")
+		}
+		return rec, nil
+	}
+	for _, rec := range repo.List() {
+		if rec.OrderID == orderID {
+			return rec, nil
+		}
+	}
+	return nil, errors.New("payment not found")
 }
 
 func payToFreedomStatus(s domainpay.Status) string {
