@@ -26,14 +26,25 @@ type PayRepo struct {
 	refSeed atomic.Uint64
 }
 
+// payIDBase — нижняя граница стартового paymentID; держим её около 1.7e9, чтобы
+// формат значения совпадал с реальным Freedom.
+const payIDBase uint64 = 1_700_000_000
+
+// payIDOffsetMod ограничивает временной офсет ~3 годами секунд. Этого хватает,
+// чтобы соседние рестарты (даже в один и тот же день) получали разные
+// диапазоны paymentID и не конфликтовали с уже сохранёнными в persistent-БД PG.
+const payIDOffsetMod uint64 = 100_000_000
+
 // NewPayRepo конструктор.
 func NewPayRepo() *PayRepo {
 	r := &PayRepo{
 		byID:    make(map[uint]*pay.Record),
 		byOrder: make(map[uint]uint),
 	}
-	// стартуем с большого числа, чтобы paymentID выглядел реалистично (как у Freedom: 1.7e9)
-	r.nextID.Store(1700000000)
+	// Сбрасывать счётчик в фиксированный 1.7e9 нельзя: после рестарта мока
+	// payment-gateway встречает старые paymentID/reference в своей persistent-БД
+	// и UPDATE падает по unique constraint. Добавляем временной офсет.
+	r.nextID.Store(payIDBase + uint64(time.Now().Unix())%payIDOffsetMod) //nolint:gosec // time.Unix() гарантированно положительный в нашу эпоху
 	return r
 }
 
