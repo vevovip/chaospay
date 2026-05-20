@@ -50,7 +50,11 @@ test-unit: ## Юнит-тесты пакетов (без поднятого ко
 
 test-integration: ## Интеграционные тесты (требуют запущенный мок на $(MOCK_URL))
 	@$(MAKE) health
-	cd tests/integration && go build -o /tmp/chaospay-itest . && /tmp/chaospay-itest
+	@# Подгружаем .env (если есть), чтобы тест подписывал запросы тем же CHAOSPAY_FREEDOM_SECRET,
+	@# что и контейнер. Без этого тест валится по invalid signature, когда в .env переопределён secret.
+	cd tests/integration && go build -o /tmp/chaospay-itest . && \
+	if [ -f ../../.env ]; then set -a; . ../../.env; set +a; fi && \
+	/tmp/chaospay-itest
 
 test-all: test-unit ## Юнит + интеграционные. Сам поднимет контейнер если нужно.
 	@curl -sS -m 2 $(MOCK_URL)/health >/dev/null 2>&1 || $(MAKE) up

@@ -106,6 +106,17 @@ const (
 	EndpointEpayStatus    = "epay_status" // GET /check-status/payment/transactionId/{id}
 )
 
+// Flitt endpoints (operation-name внутри JSON-handler-ов).
+const (
+	EndpointFlittCheckout  = "flitt_checkout"  // POST /api/checkout/url — hosted-форма
+	EndpointFlittDirect    = "flitt_direct"    // POST /api/3dsecure_step1 — direct (Apple/Google Pay)
+	EndpointFlittRecurring = "flitt_recurring" // POST /api/recurring — списание сохранённой картой
+	EndpointFlittCapture   = "flitt_capture"   // POST /api/capture/order_id
+	EndpointFlittReverse   = "flitt_reverse"   // POST /api/reverse/order_id
+	EndpointFlittStatus    = "flitt_status"    // POST /api/status/order_id
+	EndpointFlittStep2     = "flitt_3ds_step2" // POST /api/3dsecure_step2 — завершение 3DS
+)
+
 // AllEndpoints — для UI dropdown.
 var AllEndpoints = []string{
 	Wildcard,
@@ -118,6 +129,9 @@ var AllEndpoints = []string{
 	// Epay
 	EndpointEpayToken, EndpointEpayCryptopay, EndpointEpayCardAuth,
 	EndpointEpayCharge, EndpointEpayCancel, EndpointEpayRefund, EndpointEpayStatus,
+	// Flitt
+	EndpointFlittCheckout, EndpointFlittDirect, EndpointFlittRecurring,
+	EndpointFlittCapture, EndpointFlittReverse, EndpointFlittStatus, EndpointFlittStep2,
 }
 
 // EndpointBank возвращает банк, к которому принадлежит endpoint-ключ.
@@ -133,6 +147,9 @@ func EndpointBank(ep string) bank.Bank {
 	case EndpointEpayToken, EndpointEpayCryptopay, EndpointEpayCardAuth,
 		EndpointEpayCharge, EndpointEpayCancel, EndpointEpayRefund, EndpointEpayStatus:
 		return bank.Epay
+	case EndpointFlittCheckout, EndpointFlittDirect, EndpointFlittRecurring,
+		EndpointFlittCapture, EndpointFlittReverse, EndpointFlittStatus, EndpointFlittStep2:
+		return bank.Flitt
 	}
 	return bank.Any
 }

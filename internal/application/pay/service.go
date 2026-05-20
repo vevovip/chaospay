@@ -4,6 +4,7 @@ package pay
 import (
 	"errors"
 
+	"github.com/vevovip/chaospay/internal/domain/bank"
 	"github.com/vevovip/chaospay/internal/domain/pay"
 )
 
@@ -36,23 +37,36 @@ type EpayWebhook interface {
 	SendBind(rec *pay.Record, success bool, reasonCode int, reason string) (int, error)
 }
 
+// AutoWebhookConfig — per-bank флаги авто-webhook'ов.
+// true для банка = после каждого перехода в Authorized/Captured/... мок сам шлёт
+// webhook на PG (panel-кнопки + внутренний flow сервиса). false = только вручную
+// через кнопку "Webhook" в panel.
+type AutoWebhookConfig struct {
+	Freedom bool
+	Epay    bool
+	Flitt   bool
+}
+
 // Service — application-сервис карточных платежей.
 type Service struct {
-	repo        Repository
-	webhook     Webhook
-	cardWebhook CardWebhook
-	epayWebhook EpayWebhook
-	autoWebhook bool
+	repo         Repository
+	webhook      Webhook
+	cardWebhook  CardWebhook
+	epayWebhook  EpayWebhook
+	flittWebhook FlittWebhook
+	autoWebhook  AutoWebhookConfig
 }
 
 // NewService конструктор. Все зависимости — интерфейсы (DI через конструктор).
-func NewService(repo Repository, wh Webhook, cw CardWebhook, ew EpayWebhook, autoWebhook bool) *Service {
+// flittWebhook опционально; передавай nil, если Flitt не используется.
+func NewService(repo Repository, wh Webhook, cw CardWebhook, ew EpayWebhook, fw FlittWebhook, autoWebhook AutoWebhookConfig) *Service {
 	return &Service{
-		repo:        repo,
-		webhook:     wh,
-		cardWebhook: cw,
-		epayWebhook: ew,
-		autoWebhook: autoWebhook,
+		repo:         repo,
+		webhook:      wh,
+		cardWebhook:  cw,
+		epayWebhook:  ew,
+		flittWebhook: fw,
+		autoWebhook:  autoWebhook,
 	}
 }
 
@@ -355,12 +369,45 @@ func (s *Service) ApplyForce(paymentID uint, target pay.Status) (*pay.Record, er
 	if target == pay.StatusAuthorized || target == pay.StatusCaptured {
 		updated = s.ensureReference(paymentID, updated)
 	}
-	if s.autoWebhook {
-		success := target == pay.StatusAuthorized || target == pay.StatusCaptured
-		captured := target == pay.StatusCaptured
-		go func() { _, _ = s.webhook.Send(updated, success, captured) }()
-	}
+	// Auto-webhook решается per-bank в sendAutoWebhookForRecord по rec.Bank.
+	success := target == pay.StatusAuthorized || target == pay.StatusCaptured
+	captured := target == pay.StatusCaptured
+	s.sendAutoWebhookForRecord(updated, success, captured)
 	return updated, nil
+}
+
+// sendAutoWebhookForRecord роутит auto-webhook по банку записи.
+// Каждый банк имеет свой автоматический флаг (AutoWebhookConfig): включён —
+// шлём через соответствующего pgclient'а, выключен — ничего не делаем,
+// оператор сам нажмёт кнопку "Webhook" в panel.
+func (s *Service) sendAutoWebhookForRecord(rec *pay.Record, success, captured bool) {
+	if rec == nil {
+		return
+	}
+	switch rec.Bank {
+	case bank.Epay:
+		if !s.autoWebhook.Epay || s.epayWebhook == nil {
+			return
+		}
+		go func() {
+			if success {
+				_, _ = s.epayWebhook.SendSuccess(rec)
+			} else {
+				_, _ = s.epayWebhook.SendFailure(rec, 477, "panel force fail")
+			}
+		}()
+	case bank.Flitt:
+		if !s.autoWebhook.Flitt || s.flittWebhook == nil {
+			return
+		}
+		go func() { _, _ = s.flittWebhook.SendCallback(rec, success) }()
+	default:
+		// Freedom (включая bank.Any для legacy записей).
+		if !s.autoWebhook.Freedom || s.webhook == nil {
+			return
+		}
+		go func() { _, _ = s.webhook.Send(rec, success, captured) }()
+	}
 }
 
 // referenceBase — стартовое 12-значное число для генерации auth-code,
@@ -389,7 +436,9 @@ func (s *Service) ensureReference(paymentID uint, rec *pay.Record) *pay.Record {
 }
 
 func (s *Service) maybeWebhook(rec *pay.Record, success, captured bool) {
-	if !s.autoWebhook {
+	// maybeWebhook вызывается только из Freedom-flow (Hold/Capture/...). Управляется
+	// AutoWebhookConfig.Freedom.
+	if !s.autoWebhook.Freedom || s.webhook == nil {
 		return
 	}
 	go func() {

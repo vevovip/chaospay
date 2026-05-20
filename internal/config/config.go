@@ -30,6 +30,14 @@ type Config struct {
 	EpayBindWebhookURL    string
 	EpayAutoWebhook       bool
 
+	// ----- Flitt -----
+	FlittMerchantID        int
+	FlittSecret            string
+	FlittSuccessWebhookURL string
+	FlittBindWebhookURL    string
+	FlittHostedFormURL     string
+	FlittAutoWebhook       bool
+
 	// ----- Loyalty (mock /loyaltyservice/loyalty/frhcCompanyTransaction) -----
 	LoyaltyCashbackPercent float32
 	LoyaltyCashbackBalance float32
@@ -45,6 +53,8 @@ func Load() Config { //nolint:funlen
 	terminalID, _ := strconv.Atoi(envOrDefault("CHAOSPAY_FREEDOM_TERMINAL_ID", "1"))
 	autoWebhook, _ := strconv.ParseBool(envOrDefault("CHAOSPAY_FREEDOM_AUTO_WEBHOOK", "false"))
 	epayAutoWebhook, _ := strconv.ParseBool(envOrDefault("CHAOSPAY_EPAY_AUTO_WEBHOOK", "false"))
+	flittAutoWebhook, _ := strconv.ParseBool(envOrDefault("CHAOSPAY_FLITT_AUTO_WEBHOOK", "true"))
+	flittMerchantID, _ := strconv.Atoi(envOrDefault("CHAOSPAY_FLITT_MERCHANT_ID", "1549901"))
 	delay, _ := strconv.Atoi(envOrDefault("CHAOSPAY_DELAY_SECONDS", "0"))
 	loyaltyPercent, _ := strconv.ParseFloat(envOrDefault("CHAOSPAY_LOYALTY_CASHBACK_PERCENT", "10"), 32)
 	loyaltyBalance, _ := strconv.ParseFloat(envOrDefault("CHAOSPAY_LOYALTY_CASHBACK_BALANCE", "10000"), 32)
@@ -67,6 +77,13 @@ func Load() Config { //nolint:funlen
 		EpayFailureWebhookURL: envOrDefault("PG_EPAY_FAILURE_POSTLINK_URL", "http://payment-gateway-go-nginx:80/api/v1/payment-gateway/webhook/epay_v2/failure_postlink"),
 		EpayBindWebhookURL:    envOrDefault("PG_EPAY_BIND_POSTLINK_URL", "http://payment-gateway-go-nginx:80/api/v1/payment-gateway/webhook/epay/postlink/bind"),
 		EpayAutoWebhook:       epayAutoWebhook,
+
+		FlittMerchantID:        flittMerchantID,
+		FlittSecret:            envOrDefault("CHAOSPAY_FLITT_SECRET", "test"),
+		FlittSuccessWebhookURL: envOrDefault("PG_FLITT_WEBHOOK_URL", "http://payment-gateway-go-nginx:80/api/v1/payment-gateway/webhook/flitt"),
+		FlittBindWebhookURL:    envOrDefault("PG_FLITT_BIND_WEBHOOK_URL", "http://payment-gateway-go-nginx:80/api/v1/payment-gateway/webhook/flitt/bind"),
+		FlittHostedFormURL:     envOrDefault("CHAOSPAY_FLITT_HOSTED_URL", "http://localhost:48532/panel?bank=flitt&tab=cards"),
+		FlittAutoWebhook:       flittAutoWebhook,
 
 		LoyaltyCashbackPercent: float32(loyaltyPercent),
 		LoyaltyCashbackBalance: float32(loyaltyBalance),

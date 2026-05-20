@@ -95,7 +95,7 @@ func (c *Controller) handlePanel(w http.ResponseWriter, r *http.Request) {
 		c.renderQRTab(w)
 	case tab == "loyalty" && b == bank.Loyalty:
 		c.renderLoyaltyTab(w)
-	case tab == "cards" && (b == bank.Freedom || b == bank.Epay):
+	case tab == "cards" && (b == bank.Freedom || b == bank.Epay || b == bank.Flitt):
 		c.renderCardsTab(w, b)
 	case tab == "scenarios":
 		c.renderScenariosTab(w, b)
@@ -151,6 +151,7 @@ func (c *Controller) createSynthetic(r *http.Request) {
 		status = domainpay.StatusNew
 	}
 	b := parseBank(r.FormValue("bank"))
+	currency := r.FormValue("currency")
 
 	var pid uint
 	switch b {
@@ -168,6 +169,26 @@ func (c *Controller) createSynthetic(r *http.Request) {
 		})
 		if err != nil {
 			log.Printf("[panel] epay synthetic failed: %v", err)
+			return
+		}
+		pid = rec.PaymentID
+	case bank.Flitt:
+		// Минимальный Flitt-record: hosted-форма через application/pay.
+		// Currency — из формы (по умолчанию GEL, см. amountFieldFor).
+		flittCurrency := currency
+		if flittCurrency != "GEL" && flittCurrency != "USD" {
+			flittCurrency = "GEL"
+		}
+		rec, err := c.pay.FlittCheckout(apppay.FlittCheckoutInput{
+			OrderID:       uint(orderID),
+			MerchantID:    uint(c.cfg.FlittMerchantID), //nolint:gosec
+			Amount:        uint(amount),
+			Currency:      flittCurrency,
+			Description:   fmt.Sprintf("synthetic order %d", orderID),
+			HostedFormURL: c.cfg.FlittHostedFormURL,
+		})
+		if err != nil {
+			log.Printf("[panel] flitt synthetic failed: %v", err)
 			return
 		}
 		pid = rec.PaymentID
@@ -206,6 +227,13 @@ func (c *Controller) applyCardAction(paymentID uint, action string) {
 	case "force_failed":
 		target = domainpay.StatusFailed
 	case "send_card_webhook":
+		// Для Flitt bind-flow используем отдельный bind-callback.
+		if rec, err := c.pay.Repo().Get(paymentID); err == nil && rec.Bank == bank.Flitt {
+			if err := c.pay.SendFlittBindCallback(paymentID, true); err != nil {
+				log.Printf("[panel] send flitt bind callback failed: %v", err)
+			}
+			return
+		}
 		if err := c.pay.SendCardWebhook(paymentID); err != nil {
 			log.Printf("[panel] send card webhook failed: %v", err)
 		}
@@ -239,6 +267,10 @@ func (c *Controller) handleCardsWebhook(w http.ResponseWriter, r *http.Request) 
 		// из Cards-tab — отправляем soft postlink в PG-targets из config.
 		if errSend := c.sendEpayWebhook(uint(paymentID), success, r.FormValue("variant")); errSend != nil {
 			log.Printf("[panel] send epay webhook failed: %v", errSend)
+		}
+	case bank.Flitt:
+		if errSend := c.pay.SendFlittCallback(uint(paymentID), success); errSend != nil {
+			log.Printf("[panel] send flitt callback failed: %v", errSend)
 		}
 	default:
 		if errSend := c.pay.SendWebhook(uint(paymentID), success); errSend != nil {

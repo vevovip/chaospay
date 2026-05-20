@@ -38,12 +38,19 @@ func (c *Controller) renderCardsTab(w http.ResponseWriter, b bank.Bank) {
 	autoWebhook := c.cfg.AutoWebhook
 	title := "Freedom Pay — Card Payments"
 	hint := "Управление saved-card, PayPage, Apple Pay, Google Pay и bind-card платежами."
-	if b == bank.Epay {
+	switch b {
+	case bank.Epay:
 		payWebhook = c.cfg.EpaySuccessWebhookURL
 		cardWebhook = c.cfg.EpayBindWebhookURL
 		autoWebhook = c.cfg.EpayAutoWebhook
 		title = "Halyk Epay — Card Payments"
 		hint = "Cryptopay/Card Auth (новая/сохранённая карта), Apple Pay, bind-card."
+	case bank.Flitt:
+		payWebhook = c.cfg.FlittSuccessWebhookURL
+		cardWebhook = c.cfg.FlittBindWebhookURL
+		autoWebhook = c.cfg.FlittAutoWebhook
+		title = "Flitt — Card Payments"
+		hint = "Checkout-форма, Apple/Google Pay, recurring (сохранённая карта), bind-card."
 	}
 
 	fmt.Fprintf(w, `<div class="section-header">
@@ -91,6 +98,8 @@ func (c *Controller) renderCardsTab(w http.ResponseWriter, b bank.Bank) {
 		fmt.Fprint(w, `</table></div>`)
 	}
 
+	amountLabel, currencySelector := amountFieldFor(b)
+
 	fmt.Fprintf(w, `<div class="panel-card" style="margin-top:24px;">
 <div class="section-header">
 <div class="section-title">
@@ -104,8 +113,8 @@ func (c *Controller) renderCardsTab(w http.ResponseWriter, b bank.Bank) {
 <div class="scenario-form" style="margin-bottom:0;">
 <div class="row">
 <label>Order ID<input type="number" name="order_id" value="" required></label>
-<label>Amount (KZT)<input type="number" name="amount" value="1500" required></label>
-<label>User ID<input type="number" name="user_id" value="1"></label>
+<label>%s<input type="number" name="amount" value="1500" required></label>
+%s<label>User ID<input type="number" name="user_id" value="1"></label>
 <label>Status<select name="status">
 <option value="NEW">NEW</option>
 <option value="AUTHORIZED">AUTHORIZED</option>
@@ -114,7 +123,24 @@ func (c *Controller) renderCardsTab(w http.ResponseWriter, b bank.Bank) {
 </div>
 <button class="btn btn-primary" type="submit">Create test payment</button>
 </div>
-</form></div>`, b)
+</form></div>`, b, amountLabel, currencySelector)
+}
+
+// amountFieldFor возвращает (label для amount, html-блок селектора валюты).
+// Для Flitt — селектор GEL/USD. Для остальных — валюта зашита.
+func amountFieldFor(b bank.Bank) (string, string) {
+	switch b {
+	case bank.Flitt:
+		return "Amount", `<label>Currency<select name="currency">
+<option value="GEL" selected>GEL — лари</option>
+<option value="USD">USD — доллар</option>
+</select></label>
+`
+	case bank.Epay:
+		return "Amount (KZT)", `<input type="hidden" name="currency" value="KZT">`
+	default:
+		return "Amount (KZT)", `<input type="hidden" name="currency" value="KZT">`
+	}
 }
 
 func renderCardRow(w http.ResponseWriter, rec *domainpay.Record, b bank.Bank) {
@@ -145,7 +171,7 @@ func renderCardRow(w http.ResponseWriter, rec *domainpay.Record, b bank.Bank) {
 
 	fmt.Fprint(w, `<td><div class="actions">`)
 	pid := strconv.FormatUint(uint64(rec.PaymentID), 10)
-	if rec.Kind == domainpay.KindBind || rec.Kind == domainpay.KindEpayBind {
+	if rec.Kind == domainpay.KindBind || rec.Kind == domainpay.KindEpayBind || rec.Kind == domainpay.KindFlittBind {
 		actionButton(w, pid, "send_card_webhook", "btn-purple", "Send Card-Bind Webhook", b)
 	} else {
 		switch rec.Status {
@@ -178,7 +204,7 @@ func renderCardRow(w http.ResponseWriter, rec *domainpay.Record, b bank.Bank) {
 }
 
 func cardNextStep(rec *domainpay.Record) (string, string) {
-	if rec.Kind == domainpay.KindBind {
+	if rec.Kind == domainpay.KindBind || rec.Kind == domainpay.KindEpayBind || rec.Kind == domainpay.KindFlittBind {
 		if rec.WebhookSent {
 			return "Bind notified", "Card-bind webhook уже отправлен."
 		}

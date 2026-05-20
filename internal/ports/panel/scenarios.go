@@ -245,6 +245,9 @@ func scenarioPresetGroup(name string) string {
 	case strings.Contains(name, "postlink") || strings.Contains(name, "3ds_required") || strings.Contains(name, "wrong_invoice"):
 		// Epay postlink-инциденты, 3DS-челлендж, рассинхрон invoiceId.
 		return "Incidents"
+	case strings.HasPrefix(name, "flitt_ex1001") || strings.HasPrefix(name, "flitt_ambiguous") || strings.HasPrefix(name, "flitt_webhook") || name == "flitt_3ds_decline":
+		// Flitt-инциденты (silent hold, recovery, lost webhook, 3DS decline после step2).
+		return "Incidents"
 	case strings.Contains(name, "retry") || strings.Contains(name, "deadline") || strings.Contains(name, "timeout"):
 		return "Retry and timeouts"
 	case strings.Contains(name, "funds") || strings.Contains(name, "declined") || strings.Contains(name, "fraud") ||

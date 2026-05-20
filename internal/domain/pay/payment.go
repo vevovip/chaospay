@@ -50,6 +50,12 @@ const (
 	KindEpayPay      Kind = "epay_pay"   // /api/payments/cards/auth — сохранённая карта (cardId+accountId)
 	KindEpayApplePay Kind = "epay_apple" // /api/payment/cryptopay с paymentType=applePay
 	KindEpayBind     Kind = "epay_bind"  // привязка карты через cryptopay (cardSave=true)
+	// Flitt
+	KindFlittCheckout  Kind = "flitt_checkout"   // /api/checkout/url — hosted-форма
+	KindFlittApplePay  Kind = "flitt_apple_pay"  // /api/3dsecure_step1 c Apple Pay container
+	KindFlittGooglePay Kind = "flitt_google_pay" // /api/3dsecure_step1 c Google Pay container
+	KindFlittRecurring Kind = "flitt_recurring"  // /api/recurring — сохранённая карта (rectoken)
+	KindFlittBind      Kind = "flitt_bind"       // bind-flow (verification=Y)
 )
 
 // HistoryEntry — запись об изменении состояния (для UI журнала).
@@ -107,6 +113,20 @@ type Record struct {
 	EpayCallbackURL        string // postlink — успех
 	EpayFailureCallbackURL string // failurePostlink — ошибка
 	EpayPaymentType        string // "cardId" / "applePay" — из cryptopay/auth запроса
+
+	// Flitt specific. Для прочих банков — пусты.
+	FlittPaymentID    int64  // payment_id Flitt (числовой, в формате 1.7e9)
+	FlittRectoken     string // rectoken — токен сохранённой карты (выдаётся в ответе)
+	FlittApprovalCode string // approval_code (6 цифр)
+	FlittRRN          string // RRN (12 цифр) — auth-reference в ответах Flitt
+	FlittCallbackURL  string // server_callback_url
+	FlittResponseURL  string // response_url (backlink)
+	FlittMerchantData string // merchant_data (произвольный JSON-строкой)
+	FlittCheckoutURL  string // URL hosted-формы (выдаётся в ответе на /api/checkout/url)
+	FlittIsVerify     bool   // verification=Y → bind-flow (0.1 GEL)
+	FlittPareq        string // pareq для 3DS step1 → step2
+	FlittMD           string // md для 3DS step1 → step2
+	FlittACSURL       string // acs_url для 3DS-челленджа
 
 	Status      Status
 	LastError   string

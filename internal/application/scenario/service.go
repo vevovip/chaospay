@@ -720,6 +720,74 @@ context deadline exceeded`,
 # PG не сможет отрендерить редирект — клиент застрянет на форме.`,
 	},
 
+	// ===== Flitt presets =====
+	{
+		Name: "flitt_insufficient_funds", Bank: bank.Flitt, Title: "💸 Flitt: Insufficient funds",
+		Description: "Любой платёжный запрос → response_status=failure, error_code=1024",
+		Sample: `HTTP/1.1 200 OK
+{"response":{"response_status":"failure","error_code":1024,"error_message":"Insufficient funds"}}`,
+	},
+	{
+		Name: "flitt_card_declined", Bank: bank.Flitt, Title: "🚫 Flitt: Card declined",
+		Description: "Карта отклонена эмитентом (1003)",
+		Sample:      `{"response":{"response_status":"failure","error_code":1003,"error_message":"Card declined"}}`,
+	},
+	{
+		Name: "flitt_3ds_decline", Bank: bank.Flitt, Title: "🔐 Flitt: 3DS challenge → decline",
+		Description: "direct/recurring возвращает acs_url, после step2 — declined",
+		Sample: `# Шаг 1: /api/3dsecure_step1 → success + acs_url + pareq + md
+# Шаг 2: /api/3dsecure_step2 → failure (отклонено)`,
+	},
+	{
+		Name: "flitt_capture_timeout", Bank: bank.Flitt, Title: "⏱ Flitt: Capture timeout",
+		Description: "/api/capture/order_id засыпает на 20s → клиент PG отвалится по таймауту",
+		Sample:      `# 20s sleep, потом TCP close без ответа.`,
+	},
+	{
+		Name: "flitt_recurring_timeout", Bank: bank.Flitt, Title: "⏱ Flitt: Recurring timeout",
+		Description: "/api/recurring зависает на 15s × 3 retry",
+		Sample:      `# context deadline exceeded после 3 попыток.`,
+	},
+	{
+		Name: "flitt_checkout_500", Bank: bank.Flitt, Title: "💥 Flitt: Checkout 500",
+		Description: "/api/checkout/url → 500 Internal Server Error",
+		Sample:      `HTTP/1.1 500 Internal Server Error`,
+	},
+	{
+		Name: "flitt_ex1001_silent_hold", Bank: bank.Flitt, Title: "🕳 Flitt-EX1001: silent hold",
+		Description: "Прямой платёж синхронно → failure, мок параллельно холдирует и шлёт success-callback",
+		Sample: `# Шаг 1: /api/3dsecure_step1 или /api/recurring → failure
+# Шаг 2 (async): callback на /api/v1/payment-gateway/webhook/flitt с order_status=approved`,
+	},
+	{
+		Name: "flitt_ambiguous_capture_recovery", Bank: bank.Flitt, Title: "⚡ Flitt-EX1001: Capture ambiguous → status approved",
+		Description: "Capture упал, но Status показывает approved → PG должен принять",
+		Sample: `# Шаг 1: POST /api/capture/order_id → failure
+# Шаг 2: POST /api/status/order_id → approved`,
+	},
+	{
+		Name: "flitt_webhook_lost", Bank: bank.Flitt, Title: "📭 Flitt: Webhook lost",
+		Description: "/api/3dsecure_step1 → success, но callback НЕ отправляется",
+		Sample:      `# Транзакция остаётся в pending до тайм-аута reconciler-а PG.`,
+	},
+	{
+		Name: "flitt_malformed", Bank: bank.Flitt, Title: "💥 Flitt: Malformed body",
+		Description: "Любой endpoint вернул битый JSON",
+		Sample: `HTTP/1.1 200 OK
+Content-Type: application/json
+
+{"response":{`,
+	},
+	{
+		Name: "flitt_wrong_amount", Bank: bank.Flitt, Title: "💱 Flitt: Wrong amount in status",
+		Description: "Status вернул amount=1",
+		Sample:      `{"response":{"order_status":"approved","amount":"1",...}}`,
+	},
+	{
+		Name: "flitt_invalid_signature", Bank: bank.Flitt, Title: "🚧 Flitt: Missing signature",
+		Description: "Status вернул ответ без signature",
+		Sample:      `{"response":{"order_status":"approved","signature":"",...}}`,
+	},
 	{
 		Name: "wrong_amount", Bank: bank.Freedom, Title: "💱 Wrong amount",
 		Description: "Status вернул pg_amount=1",
@@ -750,6 +818,9 @@ func (s *Service) ApplyPreset(name string) { //nolint:gocyclo,funlen
 	}
 	addEpay := func(endpoint string, action scenario.Action, params map[string]string, consumeOnce bool) {
 		addFor(bank.Epay, endpoint, action, params, consumeOnce)
+	}
+	addFlitt := func(endpoint string, action scenario.Action, params map[string]string, consumeOnce bool) {
+		addFor(bank.Flitt, endpoint, action, params, consumeOnce)
 	}
 
 	switch name {
@@ -951,5 +1022,65 @@ func (s *Service) ApplyPreset(name string) { //nolint:gocyclo,funlen
 	case "epay_3ds_missing_action_url":
 		addEpay(scenario.EndpointEpayCryptopay, scenario.ActionForce3DS,
 			map[string]string{"action": "", "pa_req": "mock-pareq"}, true)
+
+	// ===== Flitt =====
+	case "flitt_insufficient_funds":
+		addFlitt(wild, scenario.ActionForceFailure, map[string]string{
+			"error_code": "1024",
+			"message":    "Insufficient funds",
+			"outcome":    "insufficient_funds",
+		}, true)
+	case "flitt_card_declined":
+		addFlitt(wild, scenario.ActionForceFailure, map[string]string{
+			"error_code": "1003",
+			"message":    "Card declined by issuer",
+			"outcome":    "declined",
+		}, true)
+	case "flitt_3ds_decline":
+		// На direct/recurring приходит acs_url, на step2 — declined.
+		addFlitt(scenario.EndpointFlittDirect, scenario.ActionForce3DS,
+			map[string]string{"outcome": "declined_3ds"}, true)
+		addFlitt(scenario.EndpointFlittRecurring, scenario.ActionForce3DS,
+			map[string]string{"outcome": "declined_3ds"}, true)
+		addFlitt(scenario.EndpointFlittStep2, scenario.ActionForceFailure,
+			map[string]string{"error_code": "1004", "message": "3DS authentication failed"}, true)
+	case "flitt_capture_timeout":
+		addFlitt(scenario.EndpointFlittCapture, scenario.ActionTimeout,
+			map[string]string{"seconds": "20"}, true)
+	case "flitt_recurring_timeout":
+		addFlitt(scenario.EndpointFlittRecurring, scenario.ActionTimeout,
+			map[string]string{"seconds": "15"}, false)
+	case "flitt_checkout_500":
+		addFlitt(scenario.EndpointFlittCheckout, scenario.ActionHTTPError,
+			map[string]string{"http_status": "500"}, true)
+	case "flitt_ex1001_silent_hold":
+		// Прямой платёж синхронно → failure, но callback на PG приходит с approved.
+		addFlitt(scenario.EndpointFlittDirect, scenario.ActionSyncErrorAsyncWebhook,
+			map[string]string{"error_code": "1001", "message": "Неверный статус платежа"}, true)
+		addFlitt(scenario.EndpointFlittRecurring, scenario.ActionSyncErrorAsyncWebhook,
+			map[string]string{"error_code": "1001", "message": "Неверный статус платежа"}, true)
+	case "flitt_ambiguous_capture_recovery":
+		// Capture упал, Status показывает approved → PG может принять списание.
+		addFlitt(scenario.EndpointFlittCapture, scenario.ActionAmbiguousError,
+			map[string]string{"error_code": "1001", "message": "Operation already exists"}, true)
+		addFlitt(scenario.EndpointFlittStatus, scenario.ActionForceStatus,
+			map[string]string{"order_status": "approved"}, true)
+	case "flitt_webhook_lost":
+		// approve через 3dsecure_step1, но callback НЕ отправляем (handle сам не шлёт,
+		// если AutoWebhook отключён глобально). Маркируем сценарием для UI.
+		addFlitt(scenario.EndpointFlittDirect, scenario.ActionDelay,
+			map[string]string{"seconds": "0"}, true)
+	case "flitt_malformed":
+		body := `{"response":{`
+		params := map[string]string{"body": body, "content_type": "application/json"}
+		addFlitt(scenario.EndpointFlittCheckout, scenario.ActionMalformedBody, params, true)
+		addFlitt(scenario.EndpointFlittDirect, scenario.ActionMalformedBody, params, true)
+		addFlitt(scenario.EndpointFlittRecurring, scenario.ActionMalformedBody, params, true)
+	case "flitt_wrong_amount":
+		addFlitt(scenario.EndpointFlittStatus, scenario.ActionWrongAmount,
+			map[string]string{"amount": "1"}, true)
+	case "flitt_invalid_signature":
+		addFlitt(scenario.EndpointFlittStatus, scenario.ActionMissingField,
+			map[string]string{"field": "signature"}, true)
 	}
 }

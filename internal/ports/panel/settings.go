@@ -89,6 +89,18 @@ func (c *Controller) renderSettingsTab(w http.ResponseWriter) {
 
 <div class="panel-card">
 <div class="section-title" style="margin-bottom:12px;">
+<h2>Flitt Terminal</h2>
+<p>Должно совпадать с FLITT_* конфигом в payment-gateway. SDK хардкодит <code>pay.flitt.com</code>; используй <code>FLITT_API_URL=http://chaospay:8532</code> для подмены на мок.</p>
+</div>
+<div class="kv">
+<div class="key">FLITT_MERCHANT_ID</div><div class="val">%d</div>
+<div class="key">FLITT_SECRET</div><div class="val">%s</div>
+<div class="key">FLITT auto-webhook</div><div class="val">%v</div>
+</div>
+</div>
+
+<div class="panel-card">
+<div class="section-title" style="margin-bottom:12px;">
 <h2>Webhook Targets</h2>
 <p>Эти URL должны быть доступны из Docker network <code>dockernet-local</code>, а не только с хоста.</p>
 </div>
@@ -99,6 +111,8 @@ func (c *Controller) renderSettingsTab(w http.ResponseWriter) {
 <div class="endpoint-row"><div class="key">Epay: postlink</div><div class="val">%s</div></div>
 <div class="endpoint-row"><div class="key">Epay: failure_postlink</div><div class="val">%s</div></div>
 <div class="endpoint-row"><div class="key">Epay: bind postlink</div><div class="val">%s</div></div>
+<div class="endpoint-row"><div class="key">Flitt: callback</div><div class="val">%s</div></div>
+<div class="endpoint-row"><div class="key">Flitt: bind callback</div><div class="val">%s</div></div>
 </div>
 </div>
 
@@ -135,7 +149,9 @@ func (c *Controller) renderSettingsTab(w http.ResponseWriter) {
 		c.cfg.MerchantID, c.cfg.TerminalID, config.MaskSecret(c.cfg.Secret),
 		c.cfg.HostedFormURL,
 		c.cfg.EpayClientID, config.MaskSecret(c.cfg.EpayClientSecret), c.cfg.EpayTerminalUUID, c.cfg.EpayAutoWebhook,
+		c.cfg.FlittMerchantID, config.MaskSecret(c.cfg.FlittSecret), c.cfg.FlittAutoWebhook,
 		c.cfg.PayWebhookURL, c.cfg.CardWebhookURL, c.cfg.QRWebhookURL,
 		c.cfg.EpaySuccessWebhookURL, c.cfg.EpayFailureWebhookURL, c.cfg.EpayBindWebhookURL,
+		c.cfg.FlittSuccessWebhookURL, c.cfg.FlittBindWebhookURL,
 	)
 }

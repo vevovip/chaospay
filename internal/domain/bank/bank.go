@@ -24,17 +24,19 @@ const (
 
 	Freedom Bank = "freedom" // Freedom Pay XML + MD5
 	Epay    Bank = "epay"    // Halyk Epay v2 JSON + OAuth2
+	Flitt   Bank = "flitt"   // Flitt (бывш. Fondy) — JSON + SHA1
 	QR      Bank = "qr"      // FreedomQR
 	Loyalty Bank = "loyalty" // Freedom Loyalty (cashback)
 )
 
 // All — порядок отображения в panel header.
-var All = []Bank{Freedom, Epay, QR, Loyalty}
+var All = []Bank{Freedom, Epay, Flitt, QR, Loyalty}
 
 // Titles — человекочитаемые названия для UI.
 var Titles = map[Bank]string{
 	Freedom: "Freedom Pay",
 	Epay:    "Halyk Epay",
+	Flitt:   "Flitt",
 	QR:      "FreedomQR",
 	Loyalty: "Loyalty",
 }
@@ -53,6 +55,15 @@ var RoutePrefixes = []struct {
 	// Halyk Epay v2 (см. ports/api/epay/handler.go)
 	{"/oauth2/token", Epay},
 	{"/epay/", Epay},
+	// Flitt (Fondy-совместимый JSON API). См. ports/api/flitt/handler.go.
+	// Префиксы перекрывают только endpoint-ы Flitt — никакие другие банки эти пути не используют.
+	{"/api/checkout/", Flitt},
+	{"/api/recurring", Flitt},
+	{"/api/capture/", Flitt},
+	{"/api/reverse/", Flitt},
+	{"/api/status/", Flitt},
+	{"/api/3dsecure_step1", Flitt},
+	{"/api/3dsecure_step2", Flitt},
 	// Freedom Pay XML — широкие префиксы, должны быть последними
 	{"/v1/merchant/", Freedom},
 	{"/v2/", Freedom},

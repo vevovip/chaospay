@@ -123,10 +123,10 @@ func (c *Controller) xmlEndpoint(endpoint, responseScriptName string, fn xmlHand
 
 		// Подпись: scriptName входящего запроса = endpoint.
 		incomingSig := req.Get("pg_sig", "")
-		_, sigOK := freedompay.Verify(endpoint, req.Fields, c.cfg.Secret, incomingSig)
+		expected, sigOK := freedompay.Verify(endpoint, req.Fields, c.cfg.Secret, incomingSig)
 		entry.SignatureOK = sigOK
 		if !sigOK {
-			log.Printf("[PAY %s] invalid signature: got=%s", endpoint, incomingSig)
+			log.Printf("[PAY %s] invalid signature: got=%s expected=%s fields=%v", endpoint, incomingSig, expected, req.Fields)
 			c.respondFailure(w, entry, started, responseScriptName, "2000", "invalid signature: got "+incomingSig)
 			return
 		}

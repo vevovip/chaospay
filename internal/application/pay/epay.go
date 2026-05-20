@@ -50,6 +50,14 @@ func (s *Service) EpayAuthorize(in EpayAuthorizeInput) (*pay.Record, error) {
 	invoiceID := in.InvoiceID
 
 	paymentID := s.repo.NextPaymentID()
+	// Для bind-flow (cardSave=true) PG не присылает cardId — карта ещё не существует.
+	// Real Halyk генерирует cardId на своей стороне и присылает в bind-postlink.
+	// Делаем то же — иначе PG bindCallbackRequest.validate() даст errInvalidCardID.
+	cardID := in.CardID
+	if kind == pay.KindEpayBind && cardID == "" {
+		cardID = fmt.Sprintf("mock-card-%d", paymentID)
+	}
+
 	rec := &pay.Record{
 		Bank:                   bank.Epay,
 		PaymentID:              paymentID,
@@ -62,7 +70,7 @@ func (s *Service) EpayAuthorize(in EpayAuthorizeInput) (*pay.Record, error) {
 		UserEmail:              in.Email,
 		UserPhone:              in.Phone,
 		EpayInvoiceID:          invoiceID,
-		EpayCardID:             in.CardID,
+		EpayCardID:             cardID,
 		EpayAccountID:          in.AccountID,
 		EpayClientID:           in.ClientID,
 		EpayTerminalID:         in.TerminalID,

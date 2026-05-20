@@ -39,6 +39,19 @@ services:
       # Если true — мок автоматически шлёт postlink после успешного charge/cancel/refund.
       - CHAOSPAY_EPAY_AUTO_WEBHOOK=${CHAOSPAY_EPAY_AUTO_WEBHOOK:-false}
 
+      # ----- Flitt -----
+      # Тестовый merchant из docs.flitt.com/api/testing/ — мок принимает любую подпись,
+      # но при отправке callback-а на PG использует этот secret для SHA1.
+      - CHAOSPAY_FLITT_MERCHANT_ID=${CHAOSPAY_FLITT_MERCHANT_ID:-1549901}
+      - CHAOSPAY_FLITT_SECRET=${CHAOSPAY_FLITT_SECRET:-test}
+      # Webhook PG для платежей и привязки карт.
+      - PG_FLITT_WEBHOOK_URL=${PG_FLITT_WEBHOOK_URL:-http://payment-gateway-go-nginx:80/api/v1/payment-gateway/webhook/flitt}
+      - PG_FLITT_BIND_WEBHOOK_URL=${PG_FLITT_BIND_WEBHOOK_URL:-http://payment-gateway-go-nginx:80/api/v1/payment-gateway/webhook/flitt/bind}
+      # URL hosted-формы (возвращается в checkout_url). В моке — наша же панель.
+      - CHAOSPAY_FLITT_HOSTED_URL=${CHAOSPAY_FLITT_HOSTED_URL:-http://localhost:48532/panel?bank=flitt&tab=cards}
+      # Авто-callback после approved-сценариев. По умолчанию on — иначе тесты PG не получат callback.
+      - CHAOSPAY_FLITT_AUTO_WEBHOOK=${CHAOSPAY_FLITT_AUTO_WEBHOOK:-true}
+
       # ----- Freedom Loyalty (mock /loyaltyservice/loyalty/frhcCompanyTransaction) -----
       # Процент кешбека: cashbackAmount = amount * percent / 100.
       - CHAOSPAY_LOYALTY_CASHBACK_PERCENT=${CHAOSPAY_LOYALTY_CASHBACK_PERCENT:-10}

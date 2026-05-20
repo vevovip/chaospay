@@ -37,7 +37,7 @@ func newTestStand(t *testing.T) *testStand {
 	requestLog := memstore.NewRequestLog(0)
 	tokens := infraepay.NewTokenStore()
 
-	svc := apppay.NewService(payRepo, nil, nil, nil, false)
+	svc := apppay.NewService(payRepo, nil, nil, nil, nil, apppay.AutoWebhookConfig{})
 	scenarios := appscenario.NewService(scenarioStore)
 	webhook := pgclient.NewEpayClient("", "", "")
 

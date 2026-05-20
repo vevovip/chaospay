@@ -43,6 +43,13 @@ func (c *Controller) handleCryptopay(r *http.Request, body []byte, sc *scenario.
 		return 0, nil, err
 	}
 	entry.PaymentID = strconv.FormatUint(uint64(updated.PaymentID), 10)
+
+	// Если это bind-flow (cardSave=true) — Halyk отправляет НЕ обычный postlink,
+	// а отдельный bind-postlink на postLinkBind URL. Симулируем это поведение,
+	// иначе PG не зафиксирует привязку карты и end-to-end тест не пройдёт.
+	if updated.Kind == pay.KindEpayBind {
+		c.scheduleBindPostlink(sc, updated, true)
+	}
 	return http.StatusOK, buildAuthorizeResponse(updated, sc), nil
 }
 
@@ -225,6 +232,25 @@ func (c *Controller) scheduleSuccessPostlink(sc *scenario.Scenario, rec *pay.Rec
 			send()
 		}()
 	}
+}
+
+// scheduleBindPostlink отправляет bind-postlink на postLinkBind URL PG.
+// В real Halyk после cryptopay с cardSave=true → асинхронный bind-callback.
+// Без этого PG-сторона никогда не зафиксирует привязку карты.
+func (c *Controller) scheduleBindPostlink(sc *scenario.Scenario, rec *pay.Record, success bool) {
+	if c.webhook == nil || !c.cfg.AutoWebhook {
+		return
+	}
+	if sc != nil && sc.Action == scenario.ActionPostlinkLost {
+		return
+	}
+	go func() {
+		if success {
+			_, _ = c.webhook.SendBind(rec, true, 0, "success")
+		} else {
+			_, _ = c.webhook.SendBind(rec, false, -444, "Card binding failed")
+		}
+	}()
 }
 
 func errInvalidJSON(err error) error {

@@ -100,7 +100,7 @@ type subTab struct {
 // QR/Loyalty — единая страница без sub-tabs.
 func subTabsFor(b bank.Bank) []subTab {
 	switch b {
-	case bank.Freedom, bank.Epay:
+	case bank.Freedom, bank.Epay, bank.Flitt:
 		return []subTab{
 			{"cards", "Cards"},
 			{"scenarios", "Scenarios"},
@@ -124,7 +124,7 @@ func subTabsFor(b bank.Bank) []subTab {
 // defaultTabFor возвращает default sub-tab для каждого банка.
 func defaultTabFor(b bank.Bank) string {
 	switch b {
-	case bank.Freedom, bank.Epay:
+	case bank.Freedom, bank.Epay, bank.Flitt:
 		return "cards"
 	case bank.QR:
 		return "qr"

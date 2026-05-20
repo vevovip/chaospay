@@ -18,8 +18,10 @@ import (
 )
 
 const (
-	defaultBaseURL = "http://localhost:48532"
-	secret         = "mock-secret-key"
+	defaultBaseURL       = "http://localhost:48532"
+	defaultSecret        = "mock-secret-key"
+	defaultMerchantID    = "100001"
+	defaultTerminalIDInt = 1
 )
 
 // baseURL — адрес мока. Переопределяется через CHAOSPAY_BASE_URL (для локального запуска
@@ -29,6 +31,25 @@ var baseURL = func() string {
 		return v
 	}
 	return defaultBaseURL
+}()
+
+// secret — Freedom-secret мока. Читается из CHAOSPAY_FREEDOM_SECRET — должен совпадать
+// с тем, что задано контейнеру (иначе подпись запросов не пройдёт верификацию).
+var secret = func() string {
+	if v := os.Getenv("CHAOSPAY_FREEDOM_SECRET"); v != "" {
+		return v
+	}
+	return defaultSecret
+}()
+
+// merchantID — Freedom merchant_id мока. Читается из CHAOSPAY_FREEDOM_MERCHANT_ID.
+// На стороне chaospay merchant_id не валидируется отдельно (только через подпись),
+// но конструктор URL-а /v1/merchant/{id}/card/init использует именно это значение.
+var merchantID = func() string {
+	if v := os.Getenv("CHAOSPAY_FREEDOM_MERCHANT_ID"); v != "" {
+		return v
+	}
+	return defaultMerchantID
 }()
 
 var (
@@ -199,7 +220,7 @@ func main() {
 		func() { addScenario("init_payment.php", "empty_response", nil, true) },
 		func() (string, error) {
 			body, code, err := postSignedXML("init_payment.php", map[string]string{
-				"pg_merchant_id": "100001",
+				"pg_merchant_id": merchantID,
 				"pg_amount":      "100",
 				"pg_currency":    "KZT",
 				"pg_order_id":    "test-order-1",
@@ -219,7 +240,7 @@ func main() {
 		},
 		func() (string, error) {
 			body, code, err := postSignedXML("init_payment.php", map[string]string{
-				"pg_merchant_id": "100001", "pg_amount": "100", "pg_currency": "KZT", "pg_order_id": "test-order-2",
+				"pg_merchant_id": merchantID, "pg_amount": "100", "pg_currency": "KZT", "pg_order_id": "test-order-2",
 			})
 			if err != nil {
 				return "", err
@@ -279,7 +300,7 @@ func main() {
 			},
 			func() (string, error) {
 				body, _, err := postSignedXML("init_payment.php", map[string]string{
-					"pg_merchant_id": "100001", "pg_amount": "100", "pg_currency": "KZT",
+					"pg_merchant_id": merchantID, "pg_amount": "100", "pg_currency": "KZT",
 					"pg_order_id": fmt.Sprintf("biz-%s-%d", bp.preset, time.Now().UnixNano()),
 				})
 				if err != nil {
@@ -377,7 +398,7 @@ func main() {
 			pid := holdInit()
 			// Шаг 1: direct → ожидаем pg_payment_status=process
 			body1, _, err := postSignedXML("direct", map[string]string{
-				"pg_payment_id": fmt.Sprintf("%d", pid), "pg_merchant_id": "100001",
+				"pg_payment_id": fmt.Sprintf("%d", pid), "pg_merchant_id": merchantID,
 			})
 			if err != nil {
 				return "", err
@@ -387,7 +408,7 @@ func main() {
 			}
 			// Шаг 2: get_status3 → ожидаем pg_payment_status=success
 			body2, _, err := postSignedXML("get_status3.php", map[string]string{
-				"pg_payment_id": fmt.Sprintf("%d", pid), "pg_merchant_id": "100001",
+				"pg_payment_id": fmt.Sprintf("%d", pid), "pg_merchant_id": merchantID,
 			})
 			if err != nil {
 				return "", err
@@ -406,7 +427,7 @@ func main() {
 		func() (string, error) {
 			pid := holdInit()
 			body1, _, err := postSignedXML("do_capture.php", map[string]string{
-				"pg_payment_id": fmt.Sprintf("%d", pid), "pg_merchant_id": "100001",
+				"pg_payment_id": fmt.Sprintf("%d", pid), "pg_merchant_id": merchantID,
 			})
 			if err != nil {
 				return "", err
@@ -415,7 +436,7 @@ func main() {
 				return "", fmt.Errorf("capture phase: expected error, got %q", body1[:min(300, len(body1))])
 			}
 			body2, _, err := postSignedXML("get_status3.php", map[string]string{
-				"pg_payment_id": fmt.Sprintf("%d", pid), "pg_merchant_id": "100001",
+				"pg_payment_id": fmt.Sprintf("%d", pid), "pg_merchant_id": merchantID,
 			})
 			if err != nil {
 				return "", err
@@ -434,7 +455,7 @@ func main() {
 		func() (string, error) {
 			pid := holdInit()
 			body1, _, err := postSignedXML("cancel.php", map[string]string{
-				"pg_payment_id": fmt.Sprintf("%d", pid), "pg_merchant_id": "100001",
+				"pg_payment_id": fmt.Sprintf("%d", pid), "pg_merchant_id": merchantID,
 			})
 			if err != nil {
 				return "", err
@@ -443,7 +464,7 @@ func main() {
 				return "", fmt.Errorf("cancel phase: expected error, got %q", body1[:min(300, len(body1))])
 			}
 			body2, _, err := postSignedXML("get_status3.php", map[string]string{
-				"pg_payment_id": fmt.Sprintf("%d", pid), "pg_merchant_id": "100001",
+				"pg_payment_id": fmt.Sprintf("%d", pid), "pg_merchant_id": merchantID,
 			})
 			if err != nil {
 				return "", err
@@ -462,7 +483,7 @@ func main() {
 		func() (string, error) {
 			pid := holdInit()
 			body1, _, err := postSignedXML("revoke.php", map[string]string{
-				"pg_payment_id": fmt.Sprintf("%d", pid), "pg_merchant_id": "100001",
+				"pg_payment_id": fmt.Sprintf("%d", pid), "pg_merchant_id": merchantID,
 			})
 			if err != nil {
 				return "", err
@@ -471,7 +492,7 @@ func main() {
 				return "", fmt.Errorf("revoke phase: expected error, got %q", body1[:min(300, len(body1))])
 			}
 			body2, _, err := postSignedXML("get_status3.php", map[string]string{
-				"pg_payment_id": fmt.Sprintf("%d", pid), "pg_merchant_id": "100001",
+				"pg_payment_id": fmt.Sprintf("%d", pid), "pg_merchant_id": merchantID,
 			})
 			if err != nil {
 				return "", err
@@ -495,7 +516,7 @@ func main() {
 			pid := holdInit()
 			body, _, err := postSignedXML("direct", map[string]string{
 				"pg_payment_id":  fmt.Sprintf("%d", pid),
-				"pg_merchant_id": "100001",
+				"pg_merchant_id": merchantID,
 			})
 			if err != nil {
 				return "", err
@@ -515,7 +536,7 @@ func main() {
 			pid := holdInit()
 			body, _, err := postSignedXML("direct", map[string]string{
 				"pg_payment_id":  fmt.Sprintf("%d", pid),
-				"pg_merchant_id": "100001",
+				"pg_merchant_id": merchantID,
 			})
 			if err != nil {
 				return "", err
@@ -535,7 +556,7 @@ func main() {
 			pid := holdInit()
 			body, _, err := postSignedXML("direct", map[string]string{
 				"pg_payment_id":  fmt.Sprintf("%d", pid),
-				"pg_merchant_id": "100001",
+				"pg_merchant_id": merchantID,
 			})
 			if err != nil {
 				return "", err
@@ -556,7 +577,7 @@ func main() {
 			pid := holdInit()
 			body, _, err := postSignedXML("direct", map[string]string{
 				"pg_payment_id":  fmt.Sprintf("%d", pid),
-				"pg_merchant_id": "100001",
+				"pg_merchant_id": merchantID,
 			})
 			if err != nil {
 				return "", err
@@ -576,7 +597,7 @@ func main() {
 			pid := holdInit()
 			body, _, err := postSignedXML("get_status3.php", map[string]string{
 				"pg_payment_id":  fmt.Sprintf("%d", pid),
-				"pg_merchant_id": "100001",
+				"pg_merchant_id": merchantID,
 			})
 			if err != nil {
 				return "", err
@@ -596,7 +617,7 @@ func main() {
 			pid := holdInit()
 			body, _, err := postSignedXML("direct", map[string]string{
 				"pg_payment_id":  fmt.Sprintf("%d", pid),
-				"pg_merchant_id": "100001",
+				"pg_merchant_id": merchantID,
 			})
 			if err != nil {
 				return "", err
@@ -616,7 +637,7 @@ func main() {
 			pid := holdInit()
 			body, _, err := postSignedXML("get_status3.php", map[string]string{
 				"pg_payment_id":  fmt.Sprintf("%d", pid),
-				"pg_merchant_id": "100001",
+				"pg_merchant_id": merchantID,
 			})
 			if err != nil {
 				return "", err
@@ -670,7 +691,7 @@ func main() {
 		func() { mustReset() },
 		func() (string, error) {
 			body, code, err := postSignedXML("add2", map[string]string{
-				"pg_merchant_id": "100001",
+				"pg_merchant_id": merchantID,
 				"pg_user_id":     "1",
 				"pg_post_link":   "http://example.com",
 			})
@@ -687,7 +708,7 @@ func main() {
 		func() { mustReset() },
 		func() (string, error) {
 			body, code, err := postSignedXML("remove", map[string]string{
-				"pg_merchant_id": "100001",
+				"pg_merchant_id": merchantID,
 				"pg_user_id":     "1",
 				"pg_card_token":  "dummy-token",
 			})
@@ -709,12 +730,12 @@ func main() {
 			pid := holdInit()
 			// Move to authorized via direct
 			if _, _, err := postSignedXML("direct", map[string]string{
-				"pg_payment_id": fmt.Sprintf("%d", pid), "pg_merchant_id": "100001",
+				"pg_payment_id": fmt.Sprintf("%d", pid), "pg_merchant_id": merchantID,
 			}); err != nil {
 				return "", err
 			}
 			body, _, err := postSignedXML("cancel.php", map[string]string{
-				"pg_payment_id": fmt.Sprintf("%d", pid), "pg_merchant_id": "100001",
+				"pg_payment_id": fmt.Sprintf("%d", pid), "pg_merchant_id": merchantID,
 			})
 			if err != nil {
 				return "", err
@@ -752,7 +773,7 @@ func main() {
 		func() (string, error) {
 			pid := holdInit()
 			body, _, err := postSignedXML("get_status3.php", map[string]string{
-				"pg_payment_id": fmt.Sprintf("%d", pid), "pg_merchant_id": "100001",
+				"pg_payment_id": fmt.Sprintf("%d", pid), "pg_merchant_id": merchantID,
 			})
 			if err != nil {
 				return "", err
@@ -1307,7 +1328,7 @@ func holdInit() uint64 {
 	// Make sure no scenarios match this call. We add scenario AFTER this. But caller resets first.
 	// Some tests need scenario for OTHER endpoint than "init", so it's safe to call after addScenario.
 	body, code, err := postSignedXML2("init", map[string]string{
-		"pg_merchant_id":     "100001",
+		"pg_merchant_id":     merchantID,
 		"pg_order_id":        fmt.Sprintf("hi-%d", time.Now().UnixNano()),
 		"pg_amount":          "500",
 		"pg_currency":        "KZT",

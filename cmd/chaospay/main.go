@@ -24,6 +24,7 @@ import (
 	"github.com/vevovip/chaospay/internal/infrastructure/pgclient"
 	"github.com/vevovip/chaospay/internal/infrastructure/qrgen"
 	epayports "github.com/vevovip/chaospay/internal/ports/api/epay"
+	flittports "github.com/vevovip/chaospay/internal/ports/api/flitt"
 	"github.com/vevovip/chaospay/internal/ports/api/health"
 	"github.com/vevovip/chaospay/internal/ports/api/loyalty"
 	payports "github.com/vevovip/chaospay/internal/ports/api/pay"
@@ -49,7 +50,15 @@ func main() {
 	qrGenerator := qrgen.NewGenerator("")
 
 	// Application
-	payService := apppay.NewService(payRepo, payWebhookClient, cardWebhookClient, epayWebhookClient, cfg.AutoWebhook)
+	flittWebhookClient := pgclient.NewFlittClient(cfg.FlittSuccessWebhookURL, cfg.FlittBindWebhookURL, cfg.FlittSecret)
+	payService := apppay.NewService(
+		payRepo, payWebhookClient, cardWebhookClient, epayWebhookClient, flittWebhookClient,
+		apppay.AutoWebhookConfig{
+			Freedom: cfg.AutoWebhook,
+			Epay:    cfg.EpayAutoWebhook,
+			Flitt:   cfg.FlittAutoWebhook,
+		},
+	)
 	qrService := appqr.NewService(qrRepo, qrGenerator, qrgen.GenerateUUID, qrWebhookClient)
 	scenarioService := appscenario.NewService(scenarioStore)
 
@@ -69,6 +78,13 @@ func main() {
 		AutoWebhook:        cfg.EpayAutoWebhook,
 		GlobalDelaySeconds: cfg.GlobalDelaySeconds,
 	})
+	flittCtrl := flittports.NewController(payService, scenarioService, requestLog, flittWebhookClient, flittports.Config{
+		Secret:             cfg.FlittSecret,
+		MerchantID:         cfg.FlittMerchantID,
+		HostedFormURL:      cfg.FlittHostedFormURL,
+		AutoWebhook:        cfg.FlittAutoWebhook,
+		GlobalDelaySeconds: cfg.GlobalDelaySeconds,
+	})
 	panelCtrl := panel.NewController(payService, qrService, scenarioService, requestLog, cfg)
 
 	mux := http.NewServeMux()
@@ -77,6 +93,7 @@ func main() {
 	qrCtrl.Register(mux)
 	loyaltyCtrl.Register(mux)
 	epayCtrl.Register(mux)
+	flittCtrl.Register(mux)
 	panelCtrl.Register(mux)
 	health.Register(mux)
 
@@ -110,6 +127,14 @@ func logRoutes(cfg config.Config) {
 	log.Println("    POST /v1/merchant/{id}/cardstorage/add2   (AddCard)")
 	log.Println("    POST /v1/merchant/{id}/cardstorage/remove (RemoveCard)")
 	log.Println("    POST /pay/{paymentID}/pay           (ApplePay JSON / GooglePay form)")
+	log.Println("  Flitt JSON:")
+	log.Println("    POST /api/checkout/url               (Hosted-форма)")
+	log.Println("    POST /api/3dsecure_step1             (Direct: Apple/Google Pay)")
+	log.Println("    POST /api/recurring                  (Сохранённая карта)")
+	log.Println("    POST /api/capture/order_id           (Capture)")
+	log.Println("    POST /api/reverse/order_id           (Reverse / Refund)")
+	log.Println("    POST /api/status/order_id            (Status)")
+	log.Println("    POST /api/3dsecure_step2             (3DS Step 2)")
 	log.Println("  Halyk Epay v2 JSON:")
 	log.Println("    POST /oauth2/token                          (OAuth — выдача access_token)")
 	log.Println("    POST /api/payment/cryptopay                 (Cryptopay: новая карта / ApplePay)")
@@ -126,4 +151,6 @@ func logRoutes(cfg config.Config) {
 	log.Printf("  Epay Postlink URL:     %s", cfg.EpaySuccessWebhookURL)
 	log.Printf("  Epay Failure URL:      %s", cfg.EpayFailureWebhookURL)
 	log.Printf("  Epay Bind Postlink URL:%s", cfg.EpayBindWebhookURL)
+	log.Printf("  Flitt Webhook URL:     %s", cfg.FlittSuccessWebhookURL)
+	log.Printf("  Flitt Bind Webhook URL:%s", cfg.FlittBindWebhookURL)
 }
