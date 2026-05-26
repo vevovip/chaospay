@@ -13,8 +13,13 @@ import (
 // Flitt fallback-маска (если в запросе нет PAN — direct/recurring без указанной карты).
 const flittDefaultMaskedCard = "444455XXXXXX1111"
 
-// Flitt fallback-approval-code (для тестов).
-const flittDefaultApprovalCode = "123456"
+// flittApprovalCode возвращает 6-значный approval_code, уникальный для транзакции.
+// Реальный Flitt возвращает банковский код авторизации; для PG он играет роль
+// reference в таблице transactions (UNIQUE), поэтому константа здесь приводит к
+// unique violation при втором webhook'е.
+func flittApprovalCode(paymentID uint) string {
+	return fmt.Sprintf("%06d", paymentID%1_000_000)
+}
 
 // FlittWebhook — отправляет outbound callback на PG.
 type FlittWebhook interface {
@@ -70,7 +75,7 @@ func (s *Service) FlittCheckout(in FlittCheckoutInput) (*pay.Record, error) {
 		CardBrand:         "VISA",
 		CardOwner:         "TEST USER",
 		FlittPaymentID:    int64(referenceBase + paymentID), //nolint:gosec
-		FlittApprovalCode: flittDefaultApprovalCode,
+		FlittApprovalCode: flittApprovalCode(paymentID),
 		FlittRRN:          fmt.Sprintf("%012d", paymentID),
 		FlittCallbackURL:  in.CallbackURL,
 		FlittResponseURL:  in.ResponseURL,
@@ -143,7 +148,7 @@ func (s *Service) FlittDirect(in FlittDirectInput) (*pay.Record, error) {
 		CardOwner:         "TEST USER",
 		CardToken:         generateFlittRectoken(paymentID),
 		FlittPaymentID:    int64(referenceBase + paymentID), //nolint:gosec
-		FlittApprovalCode: flittDefaultApprovalCode,
+		FlittApprovalCode: flittApprovalCode(paymentID),
 		FlittRRN:          fmt.Sprintf("%012d", paymentID),
 		FlittCallbackURL:  in.CallbackURL,
 		Status:            pay.StatusNew,
@@ -198,7 +203,7 @@ func (s *Service) FlittRecurring(in FlittRecurringInput) (*pay.Record, error) {
 		CardToken:         in.Rectoken,
 		FlittRectoken:     in.Rectoken,
 		FlittPaymentID:    int64(referenceBase + paymentID), //nolint:gosec
-		FlittApprovalCode: flittDefaultApprovalCode,
+		FlittApprovalCode: flittApprovalCode(paymentID),
 		FlittRRN:          fmt.Sprintf("%012d", paymentID),
 		FlittCallbackURL:  in.CallbackURL,
 		Status:            pay.StatusNew,
