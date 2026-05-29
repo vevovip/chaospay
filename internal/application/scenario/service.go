@@ -811,6 +811,22 @@ Content-Type: application/json
 
 # Тест сверки сумм на стороне PG.`,
 	},
+	{
+		Name: "status_waiting", Bank: bank.Freedom, Title: "⏳ Status waiting",
+		Description: "get_status3.php возвращает pg_payment_status=waiting (FFB ждёт подтверждения)",
+		Sample: `# get_status3.php отдаёт ответ с pg_payment_status=waiting.
+# Это статус FFB когда платёж принят, но ещё не финализирован их стороной.
+# Регрессия prod-инцидента 2026-05-29: до фикса любой неизвестный статус
+# (не success/process/new) IsPaymentFailed() считал failed → заказ ошибочно
+# помечался Failed. Этим preset проверяем что теперь waiting корректно
+# обрабатывается как pending — poller продолжает крутить.
+
+<response>
+  <pg_status>ok</pg_status>
+  <pg_payment_status>waiting</pg_payment_status>
+  ...
+</response>`,
+	},
 }
 
 // ApplyPreset — добавляет сценарии по имени preset-а. См. AllPresets для списка.
@@ -953,6 +969,8 @@ func (s *Service) ApplyPreset(name string) { //nolint:gocyclo,funlen
 		add("direct", scenario.ActionMissingField, map[string]string{"field": "pg_sig"}, true)
 	case "wrong_amount":
 		add("get_status3.php", scenario.ActionWrongAmount, map[string]string{"amount": "1"}, true)
+	case "status_waiting":
+		add("get_status3.php", scenario.ActionForceStatus, map[string]string{"payment_status": "waiting"}, false)
 
 	// ===== Halyk Epay v2 =====
 	case "epay_insufficient_funds":

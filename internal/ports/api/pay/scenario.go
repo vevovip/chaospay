@@ -93,6 +93,7 @@ func applyScenarioAfter(sc *scenario.Scenario, fields freedompay.OrdMap) freedom
 	case scenario.ActionForceStatus:
 		if v := scenario.Param(sc, "payment_status", ""); v != "" {
 			fields = fields.Set("pg_payment_status", v)
+			fields = stripTerminalFieldsIfNonTerminal(fields, v)
 		}
 	case scenario.ActionPartialAmount:
 		if v := scenario.Param(sc, "amount", ""); v != "" {
@@ -117,5 +118,27 @@ func applyScenarioAfter(sc *scenario.Scenario, fields freedompay.OrdMap) freedom
 			fields = fields.Set(fmt.Sprintf("pg_garbage_%d", i), fmt.Sprintf("noise-%d", i))
 		}
 	}
+	return fields
+}
+
+// stripTerminalFieldsIfNonTerminal приводит ответ к виду реального FFB:
+// для non-terminal статусов (waiting/process/new) terminal-поля очищаются,
+// потому что у FFB их там быть не может — платёж ещё не финализирован.
+func stripTerminalFieldsIfNonTerminal(fields freedompay.OrdMap, paymentStatus string) freedompay.OrdMap {
+	switch paymentStatus {
+	case "waiting", "process", "new":
+	default:
+		return fields
+	}
+
+	fields = fields.Set("pg_payment_method", "none")
+	fields = fields.Delete("pg_order_id")
+	fields = fields.Delete("pg_auth_code")
+	fields = fields.Delete("pg_reference")
+	fields = fields.Delete("pg_card_pan")
+	fields = fields.Delete("pg_card_token")
+	fields = fields.Delete("pg_captured")
+	fields = fields.Delete("pg_payment_date")
+
 	return fields
 }
