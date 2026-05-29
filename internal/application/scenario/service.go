@@ -285,6 +285,15 @@ POST https://api.freedompay.kz/v1/merchant/554415/card/init giving up after 3 at
 giving up after 3 attempt(s): Post "...": context deadline exceeded`,
 	},
 	{
+		Name: "wallet_3ds_challenge", Bank: bank.Freedom, Title: "🔐 Wallet 3DS challenge",
+		Description: "googlepay вернёт status=process + frame_url (3DS у эмитента карты в кошельке)",
+		Sample: `# FFB при tokenized-платеже не всегда сразу авторизует — иногда эмитент карты
+# в кошельке требует 3DS. Тогда FFB возвращает:
+{"data":{"status":"process","frame_url":"https://customer.freedompay.kz/.../frame","payment_info":{...}}}
+# PG ставит paymentResponse.ActionURL = frame_url, заказ идёт в Pending с ActionURL.
+# Поллер должен НЕ запускаться (3DS-юзер на стороне FFB).`,
+	},
+	{
 		Name: "context_deadline", Bank: bank.Freedom, Title: "⏱ Context deadline",
 		Description: "60s timeout — клиент PG отвалится по context.deadline",
 		Sample: `# Мок засыпает на 60s — гарантированно дольше любого PG context.WithTimeout.
@@ -865,6 +874,10 @@ func (s *Service) ApplyPreset(name string) { //nolint:gocyclo,funlen
 	case "wallet_retry_exhausted":
 		add("applepay", scenario.ActionTimeout, map[string]string{"seconds": "15"}, false)
 		add("googlepay", scenario.ActionTimeout, map[string]string{"seconds": "15"}, false)
+	case "wallet_3ds_challenge":
+		// Только GooglePay: в FFB-схеме ApplePay 3DS challenge не существует,
+		// аутентификация Apple Pay проходит на устройстве (Touch/Face ID).
+		add("googlepay", scenario.ActionWallet3DSChallenge, nil, true)
 	case "context_deadline":
 		// Wildcard endpoint — действует на любой банк, поэтому Bank=Any.
 		addFor(bank.Any, wild, scenario.ActionTimeout, map[string]string{"seconds": "60"}, false)

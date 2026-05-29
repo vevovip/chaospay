@@ -35,6 +35,8 @@ const (
 	ActionWrongAmount    Action = "wrong_amount"     // подмена pg_amount / amount
 	ActionMissingField   Action = "missing_field"    // удалить указанное поле (param: field)
 	ActionExtraGarbage   Action = "extra_garbage"    // добавить мусорные поля
+	// Wallet (Freedom Apple/Google Pay) — банк-эмитент требует 3DS даже для tokenized платежа.
+	ActionWallet3DSChallenge Action = "wallet_3ds_challenge" // ответ status=process + frame_url для PG (param: frame_url)
 	// Epay-specific content-level. Реализуются в ports/api/epay/scenario.go.
 	ActionForce3DS          Action = "force_3ds"           // на cryptopay вернуть secure3D-ответ (3DS-челлендж)
 	ActionPostlinkBeforeAck Action = "postlink_before_ack" // отправить postlink ДО возврата ответа на charge
@@ -67,6 +69,7 @@ var AllActions = []Action{
 	ActionWrongAmount,
 	ActionMissingField,
 	ActionExtraGarbage,
+	ActionWallet3DSChallenge,
 	ActionForce3DS,
 	ActionPostlinkBeforeAck,
 	ActionPostlinkDouble,

@@ -98,6 +98,22 @@ func (c *Controller) handlePay(w http.ResponseWriter, r *http.Request) {
 			c.respondWalletError(w, msg)
 			c.finalize(entry, started, http.StatusOK, msg)
 			return
+		case scenario.ActionWallet3DSChallenge:
+			frameURL := scenario.Param(sc, "frame_url", "https://customer.freedompay.kz/pay/3ds-challenge/frame")
+			resp := map[string]any{
+				"data": map[string]any{
+					"status":  "process",
+					"message": "",
+					"payment_info": map[string]any{
+						"payment_id": uint(paymentID),
+					},
+					"back_url":  map[string]any{"url": ""},
+					"frame_url": frameURL,
+				},
+			}
+			writeJSON(w, resp)
+			c.finalize(entry, started, http.StatusOK, jsonString(resp))
+			return
 		case scenario.ActionSyncErrorAsyncWebhook:
 			// EX-1001 для wallet: синхронно отдаём ошибку, асинхронно холдируем платёж
 			// (Hold сам пошлёт success-webhook на PG из pgclient).

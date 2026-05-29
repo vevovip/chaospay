@@ -242,7 +242,8 @@ func scenarioPresetGroup(name string) string {
 	case strings.Contains(name, "recovery") || strings.Contains(name, "failed_status"):
 		// hold_pending_recovery, capture_failed_status_*, cancel_failed_status_*, revoke_failed_status_*
 		return "Incidents"
-	case strings.Contains(name, "postlink") || strings.Contains(name, "3ds_required") || strings.Contains(name, "wrong_invoice"):
+	case strings.Contains(name, "postlink") || strings.Contains(name, "3ds_required") ||
+		strings.Contains(name, "3ds_challenge") || strings.Contains(name, "wrong_invoice"):
 		// Epay postlink-инциденты, 3DS-челлендж, рассинхрон invoiceId.
 		return "Incidents"
 	case strings.HasPrefix(name, "flitt_ex1001") || strings.HasPrefix(name, "flitt_ambiguous") || strings.HasPrefix(name, "flitt_webhook") || name == "flitt_3ds_decline":
