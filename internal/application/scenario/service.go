@@ -847,6 +847,13 @@ func (s *Service) ApplyPreset(name string) { //nolint:gocyclo,funlen
 	addFlitt := func(endpoint string, action scenario.Action, params map[string]string, consumeOnce bool) {
 		addFor(bank.Flitt, endpoint, action, params, consumeOnce)
 	}
+	// addEpayDecline ставит отказ банка на оба charge-эндпоинта epay (сохранённая карта и
+	// новая карта/кошелёк). Без точечного эндпоинта wildcard-сценарий сгорает на запросе
+	// OAuth-токена и до charge не доходит.
+	addEpayDecline := func(reasonCode, message string) {
+		addEpay(scenario.EndpointEpayCardAuth, scenario.ActionForceFailure, map[string]string{"reason_code": reasonCode, "message": message}, true)
+		addEpay(scenario.EndpointEpayCryptopay, scenario.ActionForceFailure, map[string]string{"reason_code": reasonCode, "message": message}, true)
+	}
 
 	switch name {
 	case "ex1001":
@@ -974,17 +981,17 @@ func (s *Service) ApplyPreset(name string) { //nolint:gocyclo,funlen
 
 	// ===== Halyk Epay v2 =====
 	case "epay_insufficient_funds":
-		addEpay(wild, scenario.ActionForceFailure, map[string]string{"reason_code": "484", "message": "Insufficient funds"}, true)
+		addEpayDecline("484", "Insufficient funds")
 	case "epay_card_expired":
-		addEpay(wild, scenario.ActionForceFailure, map[string]string{"reason_code": "478", "message": "Card expired"}, true)
+		addEpayDecline("478", "Card expired")
 	case "epay_invalid_card":
-		addEpay(wild, scenario.ActionForceFailure, map[string]string{"reason_code": "457", "message": "Invalid card data"}, true)
+		addEpayDecline("457", "Invalid card data")
 	case "epay_declined_by_issuer":
-		addEpay(wild, scenario.ActionForceFailure, map[string]string{"reason_code": "455", "message": "Declined by issuer"}, true)
+		addEpayDecline("455", "Declined by issuer")
 	case "epay_limit_exceeded":
-		addEpay(wild, scenario.ActionForceFailure, map[string]string{"reason_code": "486", "message": "Card limitations exceeded"}, true)
+		addEpayDecline("486", "Card limitations exceeded")
 	case "epay_unknown_error":
-		addEpay(wild, scenario.ActionForceFailure, map[string]string{"reason_code": "477", "message": "Unknown bank error"}, true)
+		addEpayDecline("477", "Unknown bank error")
 	case "epay_3ds_required":
 		addEpay(scenario.EndpointEpayCryptopay, scenario.ActionForce3DS, nil, true)
 	case "epay_oauth_timeout":
