@@ -362,7 +362,7 @@ func (c *Controller) handleScenarioAdd(w http.ResponseWriter, r *http.Request) {
 		ConsumeOnce: consume,
 		Params:      map[string]string{},
 	}
-	for _, k := range []string{"seconds", "http_status", "error_code", "message", "payment_status", "amount", "field", "body", "content_type", "chunk_delay_ms", "count"} {
+	for _, k := range []string{"seconds", "http_status", "error_code", "message", "payment_status", "amount", "field", "body", "content_type", "chunk_delay_ms", "count", "reason_code"} {
 		if v := r.FormValue(k); v != "" {
 			sc.Params[k] = v
 		}
