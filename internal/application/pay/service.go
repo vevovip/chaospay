@@ -271,6 +271,15 @@ func (s *Service) CreateHosted(in HostedInput) (*pay.Record, error) {
 		Status:            pay.StatusNew,
 		UserPhone:         in.UserPhone,
 		UserEmail:         in.UserEmail,
+		// Синтетическая карта: после авторизации hosted-формы pay-webhook несёт
+		// токен, и PG сохраняет новую карту (флоу «оплата новой картой»).
+		CardToken: hostedCardToken(paymentID),
+		CardPAN:   hostedCardPAN(paymentID),
+		CardOwner: "TEST USER",
+		CardBrand: "VISA",
+		CardExp:   "12/26",
+		CardMonth: "12",
+		CardYear:  "26",
 	}
 	s.repo.Create(rec)
 	return rec, nil

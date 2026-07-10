@@ -64,6 +64,20 @@ func defaultCardPAN() string {
 	return "5483-18XX-XXXX-0293"
 }
 
+// hostedCardPAN — синтетический masked-PAN для hosted new-card flow.
+// Последние 4 цифры зависят от paymentID, чтобы каждая оплата новой картой
+// давала отдельную карту (у PG Add создаст новую запись, а не Bind существующей).
+func hostedCardPAN(paymentID uint) string {
+	return fmt.Sprintf("5483-18XX-XXXX-%04d", paymentID%10000)
+}
+
+// hostedCardToken — детерминированный UUID-токен для hosted new-card flow.
+// PG хранит freedompay_token в колонке типа uuid, поэтому токен обязан быть
+// валидным UUID (иначе INSERT падает 22P02).
+func hostedCardToken(paymentID uint) string {
+	return fmt.Sprintf("f0000000-0000-4000-8000-%012x", paymentID)
+}
+
 func generateBindToken(paymentID uint) string {
 	return fmt.Sprintf("mock-token-%d", paymentID)
 }
