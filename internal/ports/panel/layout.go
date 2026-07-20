@@ -112,6 +112,11 @@ func subTabsFor(b bank.Bank) []subTab {
 			{"scenarios", "Scenarios"},
 			{"log", "Request Log"},
 		}
+	case bank.Kaspi:
+		return []subTab{
+			{"kaspi", "Payments"},
+			{"log", "Request Log"},
+		}
 	case bank.Loyalty:
 		return []subTab{
 			{"loyalty", "Loyalty"},
@@ -128,6 +133,8 @@ func defaultTabFor(b bank.Bank) string {
 		return "cards"
 	case bank.QR:
 		return "qr"
+	case bank.Kaspi:
+		return "kaspi"
 	case bank.Loyalty:
 		return "loyalty"
 	}

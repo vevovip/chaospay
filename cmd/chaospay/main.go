@@ -15,6 +15,7 @@ import (
 	"log"
 	"net/http"
 
+	appkaspi "github.com/vevovip/chaospay/internal/application/kaspi"
 	apppay "github.com/vevovip/chaospay/internal/application/pay"
 	appqr "github.com/vevovip/chaospay/internal/application/qr"
 	appscenario "github.com/vevovip/chaospay/internal/application/scenario"
@@ -26,6 +27,7 @@ import (
 	epayports "github.com/vevovip/chaospay/internal/ports/api/epay"
 	flittports "github.com/vevovip/chaospay/internal/ports/api/flitt"
 	"github.com/vevovip/chaospay/internal/ports/api/health"
+	kaspiports "github.com/vevovip/chaospay/internal/ports/api/kaspi"
 	"github.com/vevovip/chaospay/internal/ports/api/loyalty"
 	payports "github.com/vevovip/chaospay/internal/ports/api/pay"
 	qrports "github.com/vevovip/chaospay/internal/ports/api/qr"
@@ -39,6 +41,7 @@ func main() {
 	// Infrastructure
 	payRepo := memstore.NewPayRepo()
 	qrRepo := memstore.NewQRRepo()
+	kaspiRepo := memstore.NewKaspiRepo()
 	scenarioStore := memstore.NewScenarioStore()
 	requestLog := memstore.NewRequestLog(0)
 
@@ -60,6 +63,11 @@ func main() {
 		},
 	)
 	qrService := appqr.NewService(qrRepo, qrGenerator, qrgen.GenerateUUID, qrWebhookClient)
+	kaspiService := appkaspi.NewService(kaspiRepo, appkaspi.BehaviorOptions{
+		StatusPollingInterval:      cfg.KaspiStatusPollingInterval,
+		LinkActivationWaitTimeout:  cfg.KaspiLinkActivationWaitTimeout,
+		PaymentConfirmationTimeout: cfg.KaspiPaymentConfirmationTimeout,
+	})
 	scenarioService := appscenario.NewService(scenarioStore)
 
 	// Ports / API
@@ -71,6 +79,7 @@ func main() {
 	})
 	walletCtrl := walletports.NewController(payService, scenarioService, requestLog)
 	qrCtrl := qrports.NewController(qrService, cfg.GlobalDelaySeconds)
+	kaspiCtrl := kaspiports.NewController(kaspiService, cfg.GlobalDelaySeconds)
 	loyaltyCtrl := loyalty.NewController(cfg.GlobalDelaySeconds, cfg.LoyaltyCashbackPercent, cfg.LoyaltyCashbackBalance)
 	epayCtrl := epayports.NewController(payService, scenarioService, requestLog, epayTokens, epayWebhookClient, epayports.Config{
 		Creds:              map[string]string{cfg.EpayClientID: cfg.EpayClientSecret},
@@ -85,12 +94,13 @@ func main() {
 		AutoWebhook:        cfg.FlittAutoWebhook,
 		GlobalDelaySeconds: cfg.GlobalDelaySeconds,
 	})
-	panelCtrl := panel.NewController(payService, qrService, scenarioService, requestLog, cfg)
+	panelCtrl := panel.NewController(payService, qrService, kaspiService, scenarioService, requestLog, cfg)
 
 	mux := http.NewServeMux()
 	payCtrl.Register(mux)
 	walletCtrl.Register(mux)
 	qrCtrl.Register(mux)
+	kaspiCtrl.Register(mux)
 	loyaltyCtrl.Register(mux)
 	epayCtrl.Register(mux)
 	flittCtrl.Register(mux)

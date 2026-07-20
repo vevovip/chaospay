@@ -27,10 +27,11 @@ const (
 	Flitt   Bank = "flitt"   // Flitt (бывш. Fondy) — JSON + SHA1
 	QR      Bank = "qr"      // FreedomQR
 	Loyalty Bank = "loyalty" // Freedom Loyalty (cashback)
+	Kaspi   Bank = "kaspi"   // KaspiPay — JSON, polling-based
 )
 
 // All — порядок отображения в panel header.
-var All = []Bank{Freedom, Epay, Flitt, QR, Loyalty}
+var All = []Bank{Freedom, Epay, Flitt, QR, Kaspi, Loyalty}
 
 // Titles — человекочитаемые названия для UI.
 var Titles = map[Bank]string{
@@ -38,6 +39,7 @@ var Titles = map[Bank]string{
 	Epay:    "Halyk Epay",
 	Flitt:   "Flitt",
 	QR:      "FreedomQR",
+	Kaspi:   "KaspiPay",
 	Loyalty: "Loyalty",
 }
 
@@ -52,6 +54,9 @@ var RoutePrefixes = []struct {
 	{"/loyaltyservice/", Loyalty},
 	// QR-PAY
 	{"/qr-code/", QR},
+	// KaspiPay (polling). См. ports/api/kaspi/handler.go — /r3/v01/* и /v01/*.
+	{"/r3/", Kaspi},
+	{"/v01/", Kaspi},
 	// Halyk Epay v2 (см. ports/api/epay/handler.go)
 	{"/oauth2/token", Epay},
 	{"/epay/", Epay},

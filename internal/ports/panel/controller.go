@@ -15,6 +15,7 @@ import (
 	"strconv"
 	"strings"
 
+	appkaspi "github.com/vevovip/chaospay/internal/application/kaspi"
 	apppay "github.com/vevovip/chaospay/internal/application/pay"
 	appqr "github.com/vevovip/chaospay/internal/application/qr"
 	appscenario "github.com/vevovip/chaospay/internal/application/scenario"
@@ -30,14 +31,15 @@ import (
 type Controller struct {
 	pay       *apppay.Service
 	qr        *appqr.Service
+	kaspi     *appkaspi.Service
 	scenarios *appscenario.Service
 	log       *memstore.RequestLog
 	cfg       config.Config
 }
 
 // NewController конструктор.
-func NewController(pay *apppay.Service, qr *appqr.Service, scenarios *appscenario.Service, log *memstore.RequestLog, cfg config.Config) *Controller {
-	return &Controller{pay: pay, qr: qr, scenarios: scenarios, log: log, cfg: cfg}
+func NewController(pay *apppay.Service, qr *appqr.Service, kaspi *appkaspi.Service, scenarios *appscenario.Service, log *memstore.RequestLog, cfg config.Config) *Controller {
+	return &Controller{pay: pay, qr: qr, kaspi: kaspi, scenarios: scenarios, log: log, cfg: cfg}
 }
 
 // Register регистрирует все panel routes.
@@ -64,6 +66,9 @@ func (c *Controller) Register(mux *http.ServeMux) {
 	mux.HandleFunc("POST /qr-panel/action", c.handleQRAction)
 	mux.HandleFunc("POST /qr-panel/webhook", c.handleQRWebhook)
 	mux.HandleFunc("POST /panel/qr/reset", c.handleQRReset)
+
+	// Kaspi actions
+	mux.HandleFunc("POST /panel/kaspi/action", c.handleKaspiAction)
 }
 
 func (c *Controller) handlePanel(w http.ResponseWriter, r *http.Request) {
@@ -93,6 +98,8 @@ func (c *Controller) handlePanel(w http.ResponseWriter, r *http.Request) {
 	switch {
 	case tab == "qr" && b == bank.QR:
 		c.renderQRTab(w)
+	case tab == "kaspi" && b == bank.Kaspi:
+		c.renderKaspiTab(w)
 	case tab == "loyalty" && b == bank.Loyalty:
 		c.renderLoyaltyTab(w)
 	case tab == "cards" && (b == bank.Freedom || b == bank.Epay || b == bank.Flitt):

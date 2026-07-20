@@ -38,6 +38,11 @@ type Config struct {
 	FlittHostedFormURL     string
 	FlittAutoWebhook       bool
 
+	// ----- KaspiPay (polling-based) -----
+	KaspiStatusPollingInterval      int
+	KaspiLinkActivationWaitTimeout  int
+	KaspiPaymentConfirmationTimeout int
+
 	// ----- Loyalty (mock /loyaltyservice/loyalty/frhcCompanyTransaction) -----
 	LoyaltyCashbackPercent float32
 	LoyaltyCashbackBalance float32
@@ -58,6 +63,10 @@ func Load() Config { //nolint:funlen
 	delay, _ := strconv.Atoi(envOrDefault("CHAOSPAY_DELAY_SECONDS", "0"))
 	loyaltyPercent, _ := strconv.ParseFloat(envOrDefault("CHAOSPAY_LOYALTY_CASHBACK_PERCENT", "10"), 32)
 	loyaltyBalance, _ := strconv.ParseFloat(envOrDefault("CHAOSPAY_LOYALTY_CASHBACK_BALANCE", "10000"), 32)
+	// Быстрый поллинг для e2e (реальный Kaspi обычно отдаёт 3с).
+	kaspiPollInterval, _ := strconv.Atoi(envOrDefault("CHAOSPAY_KASPI_POLLING_INTERVAL", "1"))
+	kaspiLinkTimeout, _ := strconv.Atoi(envOrDefault("CHAOSPAY_KASPI_LINK_TIMEOUT", "60"))
+	kaspiConfirmTimeout, _ := strconv.Atoi(envOrDefault("CHAOSPAY_KASPI_CONFIRM_TIMEOUT", "120"))
 
 	cfg := Config{
 		MerchantID: uint(merchantID),
@@ -84,6 +93,10 @@ func Load() Config { //nolint:funlen
 		FlittBindWebhookURL:    envOrDefault("PG_FLITT_BIND_WEBHOOK_URL", "http://payment-gateway-go-nginx:80/api/v1/payment-gateway/webhook/flitt/bind"),
 		FlittHostedFormURL:     envOrDefault("CHAOSPAY_FLITT_HOSTED_URL", "http://localhost:48532/panel?bank=flitt&tab=cards"),
 		FlittAutoWebhook:       flittAutoWebhook,
+
+		KaspiStatusPollingInterval:      kaspiPollInterval,
+		KaspiLinkActivationWaitTimeout:  kaspiLinkTimeout,
+		KaspiPaymentConfirmationTimeout: kaspiConfirmTimeout,
 
 		LoyaltyCashbackPercent: float32(loyaltyPercent),
 		LoyaltyCashbackBalance: float32(loyaltyBalance),

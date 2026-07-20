@@ -227,15 +227,27 @@ func TestApplyPreset_Epay_BusinessErrors_RealHalykCodes(t *testing.T) {
 			store := &fakeStore{}
 			s := NewService(store)
 			s.ApplyPreset(name)
-			if len(store.items) != 1 {
-				t.Fatalf("preset should add 1 scenario, got %d", len(store.items))
+			// Отказ ставится на оба charge-эндпоинта Epay (сохранённая карта и
+			// новая карта/кошелёк) — см. addEpayDecline в service.go.
+			if len(store.items) != 2 {
+				t.Fatalf("preset should add 2 scenarios (card_auth + cryptopay), got %d", len(store.items))
 			}
-			sc := store.items[0]
-			if sc.Action != dscenario.ActionForceFailure {
-				t.Errorf("action = %s, want force_failure", sc.Action)
+
+			gotEndpoints := map[string]bool{}
+			for _, sc := range store.items {
+				if sc.Action != dscenario.ActionForceFailure {
+					t.Errorf("action = %s, want force_failure", sc.Action)
+				}
+				if sc.Params["reason_code"] != wantCode {
+					t.Errorf("reason_code = %s, want %s", sc.Params["reason_code"], wantCode)
+				}
+				gotEndpoints[sc.Endpoint] = true
 			}
-			if sc.Params["reason_code"] != wantCode {
-				t.Errorf("reason_code = %s, want %s", sc.Params["reason_code"], wantCode)
+
+			for _, ep := range []string{dscenario.EndpointEpayCardAuth, dscenario.EndpointEpayCryptopay} {
+				if !gotEndpoints[ep] {
+					t.Errorf("preset must cover endpoint %s", ep)
+				}
 			}
 		})
 	}
