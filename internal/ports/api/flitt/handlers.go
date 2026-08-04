@@ -93,7 +93,7 @@ func (c *Controller) handleDirect(_ *http.Request, body []byte, sc *scenario.Sce
 			OrderStatus:    infraflitt.OrderStatusDeclined,
 			OrderID:        strconv.FormatUint(uint64(rec.OrderID), 10),
 			ErrorMessage:   "payment declined",
-			ErrorCode:      1001,
+			ResponseCode:   flittErrorCode(sc),
 		}
 	}
 	// Авто-callback после approved-исхода.
@@ -141,7 +141,7 @@ func (c *Controller) handleRecurring(_ *http.Request, body []byte, sc *scenario.
 			Amount:         strconv.Itoa(req.Amount),
 			Currency:       req.Currency,
 			ErrorMessage:   "payment declined",
-			ErrorCode:      1001,
+			ResponseCode:   flittErrorCode(sc),
 		}
 	} else {
 		resp = infraflitt.RecurringResponse{
@@ -423,6 +423,11 @@ func flittOutcomeFromScenario(sc *scenario.Scenario) infraflitt.CardOutcome {
 		return infraflitt.CardOutcome(v)
 	}
 	return infraflitt.OutcomeApproved
+}
+
+// flittErrorCode возвращает код отказа из сценария (param error_code), дефолт 1001.
+func flittErrorCode(sc *scenario.Scenario) string {
+	return scenario.Param(sc, "error_code", "1001")
 }
 
 func uintFromInt(v int) uint {

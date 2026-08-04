@@ -148,6 +148,7 @@ type RecurringResponse struct {
 	RRN            string      `json:"rrn,omitempty"`
 	CardType       string      `json:"card_type,omitempty"`
 	Rectoken       string      `json:"rectoken,omitempty"`
+	ResponseCode   string      `json:"response_code,omitempty"`
 	ErrorMessage   string      `json:"error_message,omitempty"`
 	ErrorCode      interface{} `json:"error_code,omitempty"`
 }

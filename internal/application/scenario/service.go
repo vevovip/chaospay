@@ -1064,13 +1064,13 @@ func (s *Service) ApplyPreset(name string) { //nolint:gocyclo,funlen
 	// ===== Flitt =====
 	case "flitt_insufficient_funds":
 		addFlitt(wild, scenario.ActionForceFailure, map[string]string{
-			"error_code": "1024",
+			"error_code": "1037", // Flitt: Decline, not sufficient funds
 			"message":    "Insufficient funds",
 			"outcome":    "insufficient_funds",
 		}, true)
 	case "flitt_card_declined":
 		addFlitt(wild, scenario.ActionForceFailure, map[string]string{
-			"error_code": "1003",
+			"error_code": "1004", // Flitt: Do not honor
 			"message":    "Card declined by issuer",
 			"outcome":    "declined",
 		}, true)
