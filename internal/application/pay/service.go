@@ -3,6 +3,7 @@ package pay
 
 import (
 	"errors"
+	"time"
 
 	"github.com/vevovip/chaospay/internal/domain/bank"
 	"github.com/vevovip/chaospay/internal/domain/pay"
@@ -223,8 +224,15 @@ func (s *Service) Cancel(paymentID uint) (*pay.Record, error) {
 	return updated, nil
 }
 
-// Revoke — возврат после списания (полный или частичный).
+// Revoke — возврат после списания (полный или частичный) с успешным исходом.
 func (s *Service) Revoke(paymentID, refundAmount uint) (*pay.Record, error) {
+	return s.RevokeWithOutcome(paymentID, refundAmount, pay.RefundStatusSuccess)
+}
+
+// RevokeWithOutcome — возврат с заданным исходом операции. Freedom заводит отдельный
+// refund-платёж в любом случае: неуспешный остаётся в pg_refund_payments со статусом
+// error и в возвращённую сумму не идёт.
+func (s *Service) RevokeWithOutcome(paymentID, refundAmount uint, outcome string) (*pay.Record, error) {
 	rec, err := s.repo.Get(paymentID)
 	if err != nil {
 		return nil, err
@@ -236,17 +244,33 @@ func (s *Service) Revoke(paymentID, refundAmount uint) (*pay.Record, error) {
 	if delta == 0 {
 		delta = rec.Captured - rec.Refunded
 	}
+
+	refundID := s.repo.NextPaymentID()
 	updated, errU := s.repo.Update(paymentID, func(r *pay.Record) (pay.Status, string, error) {
+		r.Refunds = append(r.Refunds, pay.RefundOp{
+			PaymentID: refundID,
+			Reference: referenceBase + refundID,
+			Amount:    -int(delta), //nolint:gosec // сумма возврата ограничена суммой платежа
+			Status:    outcome,
+			Date:      time.Now(),
+		})
+
+		if outcome != pay.RefundStatusSuccess {
+			return r.Status, "revoke " + outcome, nil
+		}
+
 		r.Refunded += delta
 		if r.Refunded >= r.Captured {
 			return pay.StatusRefunded, "revoke full", nil
 		}
+
 		return pay.StatusPartialRefunded, "revoke partial", nil
 	})
 	if errU != nil {
 		return nil, errU
 	}
 	s.maybeWebhook(updated, false, false)
+
 	return updated, nil
 }
 

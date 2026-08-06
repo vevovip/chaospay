@@ -35,6 +35,12 @@ const (
 	ActionWrongAmount    Action = "wrong_amount"     // подмена pg_amount / amount
 	ActionMissingField   Action = "missing_field"    // удалить указанное поле (param: field)
 	ActionExtraGarbage   Action = "extra_garbage"    // добавить мусорные поля
+	// Возвраты: банк отвечает ok на revoke.php, а сам возврат живёт своей жизнью.
+	ActionRefundDeclined Action = "refund_declined" // refund-платёж заводится со статусом error
+	ActionRefundPending  Action = "refund_pending"  // refund-платёж остаётся в process
+	// ActionRefundInvisible — прод 06.08: возврат уже создан, но в статусе исходного платежа
+	// его ещё не видно. Скрывает возвраты из ответа get_status3.php.
+	ActionRefundInvisible Action = "refund_invisible"
 	// Wallet (Freedom Apple/Google Pay) — банк-эмитент требует 3DS даже для tokenized платежа.
 	ActionWallet3DSChallenge Action = "wallet_3ds_challenge" // ответ status=process + frame_url для PG (param: frame_url)
 	// Epay-specific content-level. Реализуются в ports/api/epay/scenario.go.
@@ -70,6 +76,9 @@ var AllActions = []Action{
 	ActionMissingField,
 	ActionExtraGarbage,
 	ActionWallet3DSChallenge,
+	ActionRefundDeclined,
+	ActionRefundPending,
+	ActionRefundInvisible,
 	ActionForce3DS,
 	ActionPostlinkBeforeAck,
 	ActionPostlinkDouble,

@@ -128,6 +128,10 @@ type Record struct {
 	FlittMD           string // md для 3DS step1 → step2
 	FlittACSURL       string // acs_url для 3DS-челленджа
 
+	// Refunds — операции возврата по платежу. Freedom отдаёт их в pg_refund_payments
+	// отдельными платежами с собственным pg_payment_id и суммой минусом.
+	Refunds []RefundOp
+
 	Status      Status
 	LastError   string
 	History     []HistoryEntry
@@ -138,10 +142,31 @@ type Record struct {
 	CapturedAt   time.Time
 }
 
-// Clone возвращает глубокую копию записи (история — отдельный slice).
+// RefundOp — одна операция возврата. Amount хранится минусом, как отдаёт Freedom.
+// Неуспешная операция остаётся в списке, но в агрегат pg_refund_amount не попадает.
+type RefundOp struct {
+	PaymentID uint
+	Reference uint
+	Amount    int
+	Status    string
+	Date      time.Time
+}
+
+// Статусы операции возврата у Freedom.
+const (
+	RefundStatusSuccess = "success"
+	RefundStatusError   = "error"
+	RefundStatusProcess = "process"
+)
+
+// IsSuccessful — возврат прошёл и учитывается в возвращённой сумме.
+func (o RefundOp) IsSuccessful() bool { return o.Status == RefundStatusSuccess }
+
+// Clone возвращает глубокую копию записи (история и возвраты — отдельные slice).
 func (r *Record) Clone() *Record {
 	cp := *r
 	cp.History = append([]HistoryEntry(nil), r.History...)
+	cp.Refunds = append([]RefundOp(nil), r.Refunds...)
 	return &cp
 }
 

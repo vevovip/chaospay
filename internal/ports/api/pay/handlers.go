@@ -82,7 +82,7 @@ func (c *Controller) handleHold(req *freedompay.ParsedRequest, _ *scenario.Scena
 
 // handleStatus — POST /get_status3.php
 // Freedom находит платёж по pg_payment_id или по pg_order_id (если pg_payment_id=0).
-func (c *Controller) handleStatus(req *freedompay.ParsedRequest, _ *scenario.Scenario) (freedompay.OrdMap, error) {
+func (c *Controller) handleStatus(req *freedompay.ParsedRequest, sc *scenario.Scenario) (freedompay.OrdMap, error) {
 	paymentID := uintFromReq(req, "pg_payment_id", 0)
 	orderID := uintFromReq(req, "pg_order_id", 0)
 	if paymentID == 0 && orderID == 0 {
@@ -91,6 +91,13 @@ func (c *Controller) handleStatus(req *freedompay.ParsedRequest, _ *scenario.Sce
 	rec, err := findStatusRecord(c.svc.Repo(), paymentID, orderID)
 	if err != nil {
 		return nil, err
+	}
+	// Поиск по order_id отдаёт последний платёж заказа, а после возврата это он и есть:
+	// прод-ответ по заказу 18508640 пришёл с pg_amount=-4140 и нулевым клирингом.
+	if paymentID == 0 && !hideRefunds(sc) {
+		if refund, ok := lastRefund(rec); ok {
+			return refundStatusResponse(rec, refund), nil
+		}
 	}
 
 	out := freedompay.OrdMap{}
@@ -110,11 +117,16 @@ func (c *Controller) handleStatus(req *freedompay.ParsedRequest, _ *scenario.Sce
 		out = out.Set("pg_payment_date", rec.AuthorizedAt.Format(time.RFC3339))
 	}
 	if rec.Captured > 0 {
-		out = out.Set("pg_captured", strconv.FormatUint(uint64(rec.Captured), 10))
+		// pg_captured у Freedom — флаг клиринга (0/1), сумма живёт в pg_clearing_amount.
+		out = out.Set("pg_captured", "1")
+	}
+	if hideRefunds(sc) {
+		rec = withoutRefunds(rec)
 	}
 	if rec.Refunded > 0 {
 		out = out.Set("pg_revoked_amount", "-"+strconv.FormatUint(uint64(rec.Refunded), 10))
 	}
+	out = setRefundPayments(out, rec)
 	if rec.Reference != 0 {
 		out = out.Set("pg_reference", strconv.FormatUint(uint64(rec.Reference), 10))
 		out = out.Set("pg_auth_code", strconv.FormatUint(uint64(rec.Reference), 10))
@@ -172,13 +184,13 @@ func (c *Controller) handleCancel(req *freedompay.ParsedRequest, _ *scenario.Sce
 }
 
 // handleRevoke — POST /revoke.php
-func (c *Controller) handleRevoke(req *freedompay.ParsedRequest, _ *scenario.Scenario) (freedompay.OrdMap, error) {
+func (c *Controller) handleRevoke(req *freedompay.ParsedRequest, sc *scenario.Scenario) (freedompay.OrdMap, error) {
 	paymentID := uintFromReq(req, "pg_payment_id", 0)
 	refund := uintFromReq(req, "pg_refund_amount", 0)
 	if paymentID == 0 {
 		return nil, errors.New("payment id is required")
 	}
-	updated, err := c.svc.Revoke(paymentID, refund)
+	updated, err := c.svc.RevokeWithOutcome(paymentID, refund, refundOutcome(sc))
 	if err != nil {
 		return nil, err
 	}
@@ -243,6 +255,92 @@ func (c *Controller) handleRemoveCard(_ *freedompay.ParsedRequest, _ *scenario.S
 	return out, nil
 }
 
+// lastRefund — последняя операция возврата по платежу.
+func lastRefund(rec *domainpay.Record) (domainpay.RefundOp, bool) {
+	if len(rec.Refunds) == 0 {
+		return domainpay.RefundOp{}, false
+	}
+
+	return rec.Refunds[len(rec.Refunds)-1], true
+}
+
+// refundStatusResponse — статус самого возврата: сумма минусом, свой payment_id, клиринга нет.
+func refundStatusResponse(rec *domainpay.Record, refund domainpay.RefundOp) freedompay.OrdMap {
+	out := freedompay.OrdMap{}
+	out = out.Set("pg_status", "ok")
+	out = out.Set("pg_payment_id", strconv.FormatUint(uint64(refund.PaymentID), 10))
+	out = out.Set("pg_can_reject", "1")
+	out = out.Set("pg_payment_method", "bankcard")
+	out = out.Set("pg_currency", rec.Currency)
+	out = out.Set("pg_payment_status", refund.Status)
+	out = out.Set("pg_amount", strconv.Itoa(refund.Amount))
+	out = out.Set("pg_clearing_amount", "0")
+	out = out.Set("pg_create_date", refund.Date.Format(time.RFC3339))
+	out = out.Set("pg_reference", strconv.FormatUint(uint64(refund.Reference), 10))
+	if rec.CardPAN != "" {
+		out = out.Set("pg_card_pan", rec.CardPAN)
+	}
+	out = out.Set("pg_testing_mode", "1")
+
+	return out
+}
+
+// refundOutcome — с каким исходом сценарий велит завести refund-платёж.
+func refundOutcome(sc *scenario.Scenario) string {
+	if sc == nil {
+		return domainpay.RefundStatusSuccess
+	}
+	switch sc.Action {
+	case scenario.ActionRefundDeclined:
+		return domainpay.RefundStatusError
+	case scenario.ActionRefundPending:
+		return domainpay.RefundStatusProcess
+	}
+
+	return domainpay.RefundStatusSuccess
+}
+
+// hideRefunds — сценарий просит отдать статус так, будто возврата ещё не видно.
+func hideRefunds(sc *scenario.Scenario) bool {
+	return sc != nil && sc.Action == scenario.ActionRefundInvisible
+}
+
+// withoutRefunds — копия записи без следов возврата, сам платёж при этом не меняется.
+func withoutRefunds(rec *domainpay.Record) *domainpay.Record {
+	clone := rec.Clone()
+	clone.Refunds = nil
+	clone.Refunded = 0
+	if clone.Status == domainpay.StatusRefunded || clone.Status == domainpay.StatusPartialRefunded {
+		clone.Status = domainpay.StatusCaptured
+	}
+
+	return clone
+}
+
+// setRefundPayments добавляет в ответ pg_refund_payments — по операции на каждый возврат,
+// включая неуспешные: Freedom оставляет их в списке, но в pg_refund_amount не считает.
+func setRefundPayments(out freedompay.OrdMap, rec *domainpay.Record) freedompay.OrdMap {
+	if len(rec.Refunds) == 0 {
+		return out
+	}
+
+	children := make([]freedompay.OrdMap, 0, len(rec.Refunds))
+	for _, refund := range rec.Refunds {
+		child := freedompay.OrdMap{}
+		child = child.Set("pg_payment_id", strconv.FormatUint(uint64(refund.PaymentID), 10))
+		child = child.Set("pg_payment_status", refund.Status)
+		child = child.Set("pg_amount", strconv.Itoa(refund.Amount))
+		child = child.Set("pg_payment_date", refund.Date.Format(time.RFC3339))
+		child = child.Set("pg_reference", strconv.FormatUint(uint64(refund.Reference), 10))
+		children = append(children, child)
+	}
+
+	group := freedompay.OrdMap{}
+	group = group.Set("pg_refund_payment", children)
+
+	return out.Set("pg_refund_payments", group)
+}
+
 // findStatusRecord ищет платёж по paymentID, либо (если он пустой) по orderID.
 // Реальный Freedom get_status3.php допускает оба варианта поиска.
 func findStatusRecord(repo apppay.Repository, paymentID, orderID uint) (*domainpay.Record, error) {
@@ -272,7 +370,9 @@ func payToFreedomStatus(s domainpay.Status) string {
 	case domainpay.StatusCancelled:
 		return "revoked"
 	case domainpay.StatusRefunded, domainpay.StatusPartialRefunded:
-		return "refunded"
+		// Возвращённый платёж остаётся success: прод-статус заказа 18508638 с
+		// pg_refund_amount=-2016 приходит именно так, факт возврата живёт в суммах.
+		return "success"
 	}
 	return "process"
 }

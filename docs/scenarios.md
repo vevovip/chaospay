@@ -168,6 +168,30 @@ Headers пришли мгновенно, тело отдаётся побайт�
 |---|---|---|
 | `count` | 5 | Сколько полей `pg_garbage_N` добавить |
 
+## Возвраты
+
+Freedom заводит на каждый `revoke.php` отдельный refund-платёж со своим `pg_payment_id`
+и суммой минусом. Он попадает в `pg_refund_payments` статуса исходной оплаты, а в агрегат
+`pg_refund_amount` — только если прошёл успешно. Мок повторяет это поведение, включая то,
+что поиск статуса по `pg_order_id` после возврата отдаёт сам refund-платёж
+(`pg_amount` отрицательный, `pg_clearing_amount=0`).
+
+### `refund_declined`
+
+Матчить на `revoke.php` (по `payment_id` — `pg_order_id` в этот запрос PG не кладёт).
+Ответ на revoke — `ok`, но refund-платёж заводится со статусом `error` и денег не возвращает.
+
+### `refund_pending`
+
+То же, но refund-платёж остаётся в статусе `process` — возврат принят и ещё не завершён.
+
+### `refund_invisible`
+
+Матчить на `get_status3.php`. Отдаёт статус так, будто возврата ещё нет: без
+`pg_refund_payments` и без возвращённых сумм. Воспроизводит задержку, с которой Freedom
+отражает возврат в статусе исходного платежа. С `consume_once=true` скрывает один ответ —
+удобно проверять, что вызывающая сторона доживает до подтверждения ретраем.
+
 ## Pre-set'ы (кнопки в панели)
 
 Список всех пресетов с описанием их назначения — в [errors-playbook.md](errors-playbook.md). Программный список — переменная `AllPresets` в [`internal/application/scenario/service.go`](../internal/application/scenario/service.go).

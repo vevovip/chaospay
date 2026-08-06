@@ -193,21 +193,22 @@ func RenderResponse(rootName string, fields OrdMap) string {
 
 func renderFields(b *strings.Builder, fields OrdMap) {
 	for _, kv := range fields {
+		key := kv.Key
 		switch v := kv.Value.(type) {
 		case string:
-			fmt.Fprintf(b, "<%s>%s</%s>", kv.Key, escapeXML(v), kv.Key)
+			fmt.Fprintf(b, "<%s>%s</%s>", key, escapeXML(v), key)
 		case OrdMap:
-			fmt.Fprintf(b, "<%s>", kv.Key)
+			fmt.Fprintf(b, "<%s>", key)
 			renderFields(b, v)
-			fmt.Fprintf(b, "</%s>", kv.Key)
+			fmt.Fprintf(b, "</%s>", key)
 		case []OrdMap:
 			for _, item := range v {
-				fmt.Fprintf(b, "<%s>", kv.Key)
+				fmt.Fprintf(b, "<%s>", key)
 				renderFields(b, item)
-				fmt.Fprintf(b, "</%s>", kv.Key)
+				fmt.Fprintf(b, "</%s>", key)
 			}
 		default:
-			fmt.Fprintf(b, "<%s>%v</%s>", kv.Key, v, kv.Key)
+			fmt.Fprintf(b, "<%s>%v</%s>", key, v, key)
 		}
 	}
 }
