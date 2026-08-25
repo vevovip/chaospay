@@ -37,7 +37,8 @@ func (c *Controller) handleCryptopay(r *http.Request, body []byte, sc *scenario.
 		Postlink:        req.Postlink,
 		FailurePostlink: req.FailurePostlink,
 		CardSave:        req.CardSave,
-		HasCryptogram:   req.Cryptogram != "" || req.CryptogramApplePay != "",
+		HasCryptogram:   req.Cryptogram != "" || req.CryptogramApplePay != "" || req.CryptogramGooglePay != "",
+		Requires3DS:     sc != nil && sc.Action == scenario.ActionForce3DS,
 	})
 	if err != nil {
 		return 0, nil, err
@@ -50,7 +51,71 @@ func (c *Controller) handleCryptopay(r *http.Request, body []byte, sc *scenario.
 	if updated.Kind == pay.KindEpayBind {
 		c.scheduleBindPostlink(sc, updated, true)
 	}
-	return http.StatusOK, buildAuthorizeResponse(updated, sc), nil
+	return http.StatusOK, buildAuthorizeResponse(updated, sc, c.cfg.ACSURL), nil
+}
+
+// handleConfirm — POST /api/payment/confirm: PG прислал результат проверки 3DS.
+//
+// Real Halyk отвечает на этот запрос редиректом на success/error-страницу, поэтому
+// исход платежа PG узнаёт отдельным запросом состояния операции. Мок повторяет это:
+// переводит операцию в авторизованные (или отклоняет по сценарию) и отвечает 200.
+func (c *Controller) handleConfirm(r *http.Request, body []byte, sc *scenario.Scenario, entry *requestlog.Entry) (int, any, error) {
+	var req infraepay.ConfirmRequest
+	if err := json.Unmarshal(body, &req); err != nil {
+		return 0, nil, errInvalidJSON(err)
+	}
+
+	if req.ID == "" || req.PaRes == "" || req.MD == "" {
+		return 0, nil, errors.New("ID, PaRes and MD are required")
+	}
+
+	paymentID, ok := c.paymentIDByEpayID(req.ID)
+	if !ok {
+		return 0, nil, errors.New("operation not found")
+	}
+	entry.PaymentID = strconv.FormatUint(uint64(paymentID), 10)
+
+	rec, err := c.svc.Repo().Get(paymentID)
+	if err != nil {
+		return 0, nil, err
+	}
+	entry.OrderID = rec.EpayInvoiceID
+
+	// отказ на проверке 3DS: пароль не подошёл либо эмитент не подтвердил.
+	// Операцию переводим в FAILED до ответа: исход платежа PG узнаёт из check-status.
+	if sc != nil && sc.Action == scenario.ActionForceFailure {
+		if _, failErr := c.svc.ApplyForce(paymentID, pay.StatusFailed); failErr != nil {
+			return 0, nil, failErr
+		}
+
+		code := scenario.ParamInt(sc, "error_code", 484)
+
+		return http.StatusBadRequest, infraepay.ErrorResponse{
+			Code:       code,
+			Message:    scenario.Param(sc, "message", "3DS verification failed"),
+			ResultCode: code,
+		}, nil
+	}
+
+	updated, errAuth := c.svc.AuthorizeWallet(paymentID, rec.Kind)
+	if errAuth != nil {
+		return 0, nil, errAuth
+	}
+
+	c.scheduleSuccessPostlink(sc, updated)
+
+	return http.StatusOK, infraepay.OperationResponse{Code: 0, Message: "success"}, nil
+}
+
+// paymentIDByEpayID находит операцию по идентификатору Halyk
+func (c *Controller) paymentIDByEpayID(epayID string) (uint, bool) {
+	for _, rec := range c.svc.Repo().List() {
+		if rec.EpayID == epayID {
+			return rec.PaymentID, true
+		}
+	}
+
+	return 0, false
 }
 
 // handleCardAuth — POST /api/payments/cards/auth (сохранённая карта).
@@ -83,7 +148,7 @@ func (c *Controller) handleCardAuth(r *http.Request, body []byte, sc *scenario.S
 		return 0, nil, err
 	}
 	entry.PaymentID = strconv.FormatUint(uint64(updated.PaymentID), 10)
-	return http.StatusOK, buildAuthorizeResponse(updated, sc), nil
+	return http.StatusOK, buildAuthorizeResponse(updated, sc, c.cfg.ACSURL), nil
 }
 
 // handleCharge — POST /api/operation/{id}/charge.
@@ -180,7 +245,7 @@ func (c *Controller) handleRefund(r *http.Request, body []byte, sc *scenario.Sce
 
 // buildAuthorizeResponse — формирует AuthorizeResponse из записи.
 // Если сценарий force_3ds — добавляем блок secure3D.
-func buildAuthorizeResponse(rec *pay.Record, sc *scenario.Scenario) infraepay.AuthorizeResponse {
+func buildAuthorizeResponse(rec *pay.Record, sc *scenario.Scenario, acsURL string) infraepay.AuthorizeResponse {
 	resp := infraepay.AuthorizeResponse{
 		ID:           rec.EpayID,
 		Amount:       int(rec.Amount), //nolint:gosec
@@ -201,7 +266,11 @@ func buildAuthorizeResponse(rec *pay.Record, sc *scenario.Scenario) infraepay.Au
 	if sc != nil && sc.Action == scenario.ActionForce3DS {
 		// Используем прямой lookup, чтобы различить "не задан" и "пустая строка"
 		// (для edge case epay_3ds_missing_action_url: action="").
-		action := "https://test.bankffin.kz/3d_secure"
+		action := acsURL
+		if action == "" {
+			action = defaultACSURL
+		}
+
 		if v, ok := sc.Params["action"]; ok {
 			action = v
 		}

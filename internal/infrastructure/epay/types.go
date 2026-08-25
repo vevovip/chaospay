@@ -39,25 +39,26 @@ type CardID struct {
 // AuthorizeRequest — POST /api/payment/cryptopay (новая карта/Apple Pay)
 // и POST /api/payments/cards/auth (сохранённая карта).
 type AuthorizeRequest struct {
-	Amount             int     `json:"amount"`
-	TerminalID         string  `json:"terminalId,omitempty"`
-	InvoiceID          string  `json:"invoiceId,omitempty"`
-	Currency           string  `json:"currency,omitempty"`
-	Name               string  `json:"name,omitempty"`
-	Cryptogram         string  `json:"cryptogram,omitempty"`         // base64(RSA(cardJSON))
-	CryptogramApplePay string  `json:"cryptogramApplePay,omitempty"` // base64 Apple Pay token
-	ECI                string  `json:"eci,omitempty"`                // 3D-Secure ECI indicator
-	Description        string  `json:"description,omitempty"`
-	CardID             *CardID `json:"cardId,omitempty"`
-	AccountID          string  `json:"accountId,omitempty"`
-	PaymentType        string  `json:"paymentType,omitempty"` // "cardId" / "applePay"
-	Postlink           string  `json:"postlink,omitempty"`
-	FailurePostlink    string  `json:"failurePostlink,omitempty"`
-	Backlink           string  `json:"backlink,omitempty"`
-	FailureBacklink    string  `json:"failureBacklink,omitempty"`
-	Email              string  `json:"email,omitempty"`
-	Phone              string  `json:"phone,omitempty"`
-	CardSave           bool    `json:"cardSave,omitempty"` // true → платёж + привязка карты
+	Amount              int     `json:"amount"`
+	TerminalID          string  `json:"terminalId,omitempty"`
+	InvoiceID           string  `json:"invoiceId,omitempty"`
+	Currency            string  `json:"currency,omitempty"`
+	Name                string  `json:"name,omitempty"`
+	Cryptogram          string  `json:"cryptogram,omitempty"`         // base64(RSA(cardJSON))
+	CryptogramApplePay  string  `json:"cryptogramApplePay,omitempty"` // base64 Apple Pay token
+	ECI                 string  `json:"eci,omitempty"`                // 3D-Secure ECI indicator
+	Description         string  `json:"description,omitempty"`
+	CardID              *CardID `json:"cardId,omitempty"`
+	AccountID           string  `json:"accountId,omitempty"`
+	PaymentType         string  `json:"paymentType,omitempty"` // "cardId" / "applePay"
+	Postlink            string  `json:"postlink,omitempty"`
+	CryptogramGooglePay string  `json:"cryptogramGooglePay,omitempty"`
+	FailurePostlink     string  `json:"failurePostlink,omitempty"`
+	Backlink            string  `json:"backlink,omitempty"`
+	FailureBacklink     string  `json:"failureBacklink,omitempty"`
+	Email               string  `json:"email,omitempty"`
+	Phone               string  `json:"phone,omitempty"`
+	CardSave            bool    `json:"cardSave,omitempty"` // true → платёж + привязка карты
 }
 
 // Secure3D — блок 3D-Secure в AuthorizeResponse. Если null — 3DS не требуется.
@@ -125,6 +126,13 @@ type StatusResponse struct {
 	Issuer       string `json:"issuer,omitempty"`
 	Reason       string `json:"reason,omitempty"`
 	ReasonCode   int    `json:"reasonCode,omitempty"`
+}
+
+// ConfirmRequest — POST /api/payment/confirm тело: результат проверки 3DS.
+type ConfirmRequest struct {
+	ID    string `json:"ID"`
+	PaRes string `json:"PaRes"`
+	MD    string `json:"MD"`
 }
 
 // ChargeRequest — POST /api/operation/{id}/charge тело.

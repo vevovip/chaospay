@@ -38,6 +38,9 @@ services:
       - PG_EPAY_BIND_POSTLINK_URL=${PG_EPAY_BIND_POSTLINK_URL:-http://payment-gateway-go-nginx:80/api/v1/payment-gateway/webhook/epay/postlink/bind}
       # Если true — мок автоматически шлёт postlink после успешного charge/cancel/refund.
       - CHAOSPAY_EPAY_AUTO_WEBHOOK=${CHAOSPAY_EPAY_AUTO_WEBHOOK:-false}
+      # Страница проверки 3DS. У Halyk в secure3D.action приходит внешний адрес ACS эмитента,
+      # поэтому для локального прогона мок подставляет свою — иначе цикл не замыкается.
+      - CHAOSPAY_EPAY_ACS_URL=${CHAOSPAY_EPAY_ACS_URL:-http://chaospay:8532/epay/3ds/acs}
 
       # ----- Flitt -----
       # Тестовый merchant из docs.flitt.com/api/testing/ — мок принимает любую подпись,

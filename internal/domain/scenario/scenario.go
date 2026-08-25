@@ -115,7 +115,8 @@ const (
 	EndpointEpayCharge    = "epay_charge"
 	EndpointEpayCancel    = "epay_cancel"
 	EndpointEpayRefund    = "epay_refund"
-	EndpointEpayStatus    = "epay_status" // GET /check-status/payment/transactionId/{id}
+	EndpointEpayStatus    = "epay_status"  // GET /check-status/payment/transactionId/{id}
+	EndpointEpayConfirm   = "epay_confirm" // POST /api/payment/confirm — результат проверки 3DS
 )
 
 // Flitt endpoints (operation-name внутри JSON-handler-ов).
@@ -140,7 +141,7 @@ var AllEndpoints = []string{
 	EndpointFreedomApplePay, EndpointFreedomGooglePay,
 	// Epay
 	EndpointEpayToken, EndpointEpayCryptopay, EndpointEpayCardAuth,
-	EndpointEpayCharge, EndpointEpayCancel, EndpointEpayRefund, EndpointEpayStatus,
+	EndpointEpayCharge, EndpointEpayCancel, EndpointEpayRefund, EndpointEpayStatus, EndpointEpayConfirm,
 	// Flitt
 	EndpointFlittCheckout, EndpointFlittDirect, EndpointFlittRecurring,
 	EndpointFlittCapture, EndpointFlittReverse, EndpointFlittStatus, EndpointFlittStep2,
@@ -156,7 +157,7 @@ func EndpointBank(ep string) bank.Bank {
 		EndpointFreedomCardAdd, EndpointFreedomCardRemove,
 		EndpointFreedomApplePay, EndpointFreedomGooglePay:
 		return bank.Freedom
-	case EndpointEpayToken, EndpointEpayCryptopay, EndpointEpayCardAuth,
+	case EndpointEpayConfirm, EndpointEpayToken, EndpointEpayCryptopay, EndpointEpayCardAuth,
 		EndpointEpayCharge, EndpointEpayCancel, EndpointEpayRefund, EndpointEpayStatus:
 		return bank.Epay
 	case EndpointFlittCheckout, EndpointFlittDirect, EndpointFlittRecurring,

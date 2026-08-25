@@ -556,10 +556,24 @@ Content-Type: application/json
   "secure3D":{
     "paReq":"mock-pareq",
     "md":"mock-epay-1700000123",
-    "action":"https://test.bankffin.kz/3d_secure"
+    "action":"http://chaospay:8532/epay/3ds/acs"
   },
   ...
 }`,
+	},
+	{
+		Name: "epay_3ds_confirm_declined", Bank: bank.Epay, Title: "🔐 Epay: 3DS declined",
+		Description: "Проверка 3DS пройдена неуспешно: confirm отвечает отказом, статус операции остаётся FAILED",
+		Sample: `# Шаг 1: cryptopay → secure3D (пресет epay_3ds_required)
+# Шаг 2: POST /api/payment/confirm → {"code":484,"message":"3DS verification failed"}
+# Шаг 3: PG спрашивает состояние операции → FAILED → заказ в неуспешные.`,
+	},
+	{
+		Name: "epay_3ds_confirm_timeout", Bank: bank.Epay, Title: "⏱ Epay: 3DS confirm timeout",
+		Description: "confirm не отвечает: PG обязан довести заказ проверкой состояния операции",
+		Sample: `# Шаг 1: cryptopay → secure3D
+# Шаг 2: POST /api/payment/confirm → 20s без ответа
+# Шаг 3: PG спрашивает состояние операции → решение принимается по нему, а не по confirm.`,
 	},
 	{
 		Name: "epay_oauth_timeout", Bank: bank.Epay, Title: "⏱ Epay: OAuth timeout",
@@ -994,6 +1008,13 @@ func (s *Service) ApplyPreset(name string) { //nolint:gocyclo,funlen
 		addEpayDecline("477", "Unknown bank error")
 	case "epay_3ds_required":
 		addEpay(scenario.EndpointEpayCryptopay, scenario.ActionForce3DS, nil, true)
+	case "epay_3ds_confirm_declined":
+		addEpay(scenario.EndpointEpayCryptopay, scenario.ActionForce3DS, nil, true)
+		addEpay(scenario.EndpointEpayConfirm, scenario.ActionForceFailure,
+			map[string]string{"error_code": "484", "message": "3DS verification failed"}, true)
+	case "epay_3ds_confirm_timeout":
+		addEpay(scenario.EndpointEpayCryptopay, scenario.ActionForce3DS, nil, true)
+		addEpay(scenario.EndpointEpayConfirm, scenario.ActionTimeout, map[string]string{"seconds": "20"}, true)
 	case "epay_oauth_timeout":
 		addEpay(scenario.EndpointEpayToken, scenario.ActionTimeout, map[string]string{"seconds": "15"}, false)
 	case "epay_charge_timeout":

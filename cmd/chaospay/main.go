@@ -85,6 +85,7 @@ func main() {
 		Creds:              map[string]string{cfg.EpayClientID: cfg.EpayClientSecret},
 		TerminalUUID:       cfg.EpayTerminalUUID,
 		AutoWebhook:        cfg.EpayAutoWebhook,
+		ACSURL:             cfg.EpayACSURL,
 		GlobalDelaySeconds: cfg.GlobalDelaySeconds,
 	})
 	flittCtrl := flittports.NewController(payService, scenarioService, requestLog, flittWebhookClient, flittports.Config{

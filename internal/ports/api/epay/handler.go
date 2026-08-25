@@ -43,6 +43,9 @@ type Config struct {
 	// AutoWebhook — если true, мок сам шлёт postlink после успешного charge/cancel/refund.
 	AutoWebhook bool
 
+	// ACSURL — адрес страницы проверки 3DS, который мок отдаёт в secure3D.action.
+	ACSURL string
+
 	GlobalDelaySeconds int
 }
 
@@ -80,7 +83,8 @@ func NewController(
 // Реальные пути Halyk:
 //
 //	POST /oauth2/token                       — выдача access_token
-//	POST /api/payment/cryptopay              — авторизация новой картой / ApplePay (cryptogram)
+//	POST /api/payment/cryptopay              — авторизация новой картой / кошельком (cryptogram)
+//	POST /api/payment/confirm                — подтверждение платежа результатом проверки 3DS
 //	POST /api/payments/cards/auth            — авторизация сохранённой картой (cardId+accountId)
 //	POST /api/operation/{id}/charge          — списание захолда
 //	POST /api/operation/{id}/cancel          — отмена авторизации
@@ -99,6 +103,11 @@ func (c *Controller) Register(mux *http.ServeMux) {
 		c.jsonEndpoint(scenario.EndpointEpayCryptopay, c.handleCryptopay))
 	mux.HandleFunc("POST /api/payment/cryptopay",
 		c.jsonEndpoint(scenario.EndpointEpayCryptopay, c.handleCryptopay))
+
+	mux.HandleFunc("POST /epay/api/payment/confirm",
+		c.jsonEndpoint(scenario.EndpointEpayConfirm, c.handleConfirm))
+	mux.HandleFunc("POST /api/payment/confirm",
+		c.jsonEndpoint(scenario.EndpointEpayConfirm, c.handleConfirm))
 
 	mux.HandleFunc("POST /epay/api/payments/cards/auth",
 		c.jsonEndpoint(scenario.EndpointEpayCardAuth, c.handleCardAuth))
@@ -122,10 +131,17 @@ func (c *Controller) Register(mux *http.ServeMux) {
 
 	// Status-check (reconciler PG: "потеряли ответ — проверь, в каком состоянии операция").
 	// Метод GET — без тела; обёртка та же.
+	// Алиас с /api нужен потому, что PG собирает путь из общего BaseURI, который у Halyk
+	// оканчивается на /api — как и у cryptopay с confirm.
 	mux.HandleFunc("GET /epay/check-status/payment/transactionId/{operationID}",
 		c.jsonEndpoint(scenario.EndpointEpayStatus, c.handleStatus))
 	mux.HandleFunc("GET /check-status/payment/transactionId/{operationID}",
 		c.jsonEndpoint(scenario.EndpointEpayStatus, c.handleStatus))
+	mux.HandleFunc("GET /api/check-status/payment/transactionId/{operationID}",
+		c.jsonEndpoint(scenario.EndpointEpayStatus, c.handleStatus))
+
+	// Страница проверки 3DS: замыкает цикл в локальном прогоне вместо ACS эмитента.
+	mux.HandleFunc("POST /epay/3ds/acs", c.handleACS)
 }
 
 // jsonHandler — обработчик, возвращает (статус-код, ответ, ошибка).
@@ -164,14 +180,39 @@ func (c *Controller) jsonEndpoint(endpoint string, fn jsonHandler) http.HandlerF
 			PaymentID: entry.PaymentID,
 			OrderID:   entry.OrderID,
 		})
+		// Обрыв на подтверждении 3DS: банк операцию обработал, потерялся только ответ.
+		// Поэтому сначала выполняем подтверждение и лишь затем рвем соединение —
+		// иначе сценарий проверял бы не доведение заказа, а недошедший запрос.
+		confirmLost := endpoint == scenario.EndpointEpayConfirm && sc != nil &&
+			(sc.Action == scenario.ActionTimeout || sc.Action == scenario.ActionConnectionReset)
+
+		if confirmLost {
+			entry.ScenarioHit = sc.ID
+			entry.ScenarioName = string(sc.Action)
+
+			if _, _, errConfirm := fn(r, bodyBytes, sc, entry); errConfirm != nil {
+				c.respondError(w, entry, started, http.StatusBadRequest, errConfirm.Error())
+
+				return
+			}
+
+			scenarioapply.Transport(w, sc, entry, started, c.log)
+
+			return
+		}
+
 		if sc != nil {
 			entry.ScenarioHit = sc.ID
 			entry.ScenarioName = string(sc.Action)
 			if scenarioapply.Transport(w, sc, entry, started, c.log) {
 				return
 			}
-			if applied := c.applyScenarioBefore(w, sc, entry, started); applied {
-				return
+			// confirm обрабатывает отказ сам: перед ответом операция должна перейти
+			// в FAILED, иначе check-status отдаст NEW и PG не сможет закрыть заказ.
+			if endpoint != scenario.EndpointEpayConfirm || sc.Action != scenario.ActionForceFailure {
+				if applied := c.applyScenarioBefore(w, sc, entry, started); applied {
+					return
+				}
 			}
 		}
 

@@ -287,6 +287,22 @@ curl -X POST http://localhost:48532/panel/scenarios/add \
 
 **Endpoints, по которым можно матчить:** `init`, `direct`, `get_status3.php`, `do_capture.php`, `cancel.php`, `revoke.php`, `init_payment.php`, `add2`, `remove`, `applepay`, `googlepay`, или `*` (любой).
 
+Для Halyk Epay: `epay_token`, `epay_cryptopay`, `epay_card_auth`, `epay_confirm`, `epay_charge`, `epay_cancel`, `epay_refund`, `epay_status`.
+
+## Проверка 3DS у Halyk Epay
+
+Оплата кошельком через Epay идёт одним запросом `POST /api/payment/cryptopay` с `paymentType` = `applePay` либо `googlePay`. Карта из аккаунта Google (`PAN_ONLY`) приходит без криптограммы, поэтому банк возвращает блок `secure3D` — и платёж требует проверки у эмитента.
+
+Пресеты:
+
+| Пресет | Что имитирует | Ожидаемое поведение PG |
+|---|---|---|
+| `epay_3ds_required` | `cryptopay` возвращает `secure3D` | заказ в `action_required`, пользователь уходит на страницу 3DS |
+| `epay_3ds_confirm_declined` | `confirm` отвечает отказом | заказ в неуспешные, состояние операции `FAILED` |
+| `epay_3ds_confirm_timeout` | `confirm` не отвечает | итог берётся из состояния операции, заказ не остаётся подвешенным |
+
+Подтверждение приходит на `POST /api/payment/confirm` с полями `ID`, `PaRes`, `MD`. Real Halyk отвечает на него редиректом, поэтому мок отдаёт 200 и переводит операцию, а исход платежа PG уточняет запросом состояния операции.
+
 ---
 
 ## Verify-чеклист

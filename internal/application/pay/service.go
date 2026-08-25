@@ -474,6 +474,12 @@ func (s *Service) maybeWebhook(rec *pay.Record, success, captured bool) {
 	if !s.autoWebhook.Freedom || s.webhook == nil {
 		return
 	}
+
+	// AuthorizeWallet общий для Freedom и для confirm 3DS у Epay, а webhook здесь
+	// только freedom-формата: для чужого банка PG отвечает "merchant not found".
+	if rec.Bank != bank.Freedom {
+		return
+	}
 	go func() {
 		if _, err := s.webhook.Send(rec, success, captured); err == nil {
 			s.repo.MarkWebhookSent(rec.PaymentID)

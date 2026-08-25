@@ -46,10 +46,11 @@ const (
 	KindGooglePay Kind = "google_pay" // /pay/{id}/pay form
 	KindBind      Kind = "bind"       // /cardstorage/add2
 	// Halyk Epay v2
-	KindEpayCard     Kind = "epay_card"  // /api/payment/cryptopay — новая карта (с cryptogram)
-	KindEpayPay      Kind = "epay_pay"   // /api/payments/cards/auth — сохранённая карта (cardId+accountId)
-	KindEpayApplePay Kind = "epay_apple" // /api/payment/cryptopay с paymentType=applePay
-	KindEpayBind     Kind = "epay_bind"  // привязка карты через cryptopay (cardSave=true)
+	KindEpayCard      Kind = "epay_card"   // /api/payment/cryptopay — новая карта (с cryptogram)
+	KindEpayPay       Kind = "epay_pay"    // /api/payments/cards/auth — сохранённая карта (cardId+accountId)
+	KindEpayApplePay  Kind = "epay_apple"  // /api/payment/cryptopay с paymentType=applePay
+	KindEpayGooglePay Kind = "epay_google" // /api/payment/cryptopay с paymentType=googlePay
+	KindEpayBind      Kind = "epay_bind"   // привязка карты через cryptopay (cardSave=true)
 	// Flitt
 	KindFlittCheckout  Kind = "flitt_checkout"   // /api/checkout/url — hosted-форма
 	KindFlittApplePay  Kind = "flitt_apple_pay"  // /api/3dsecure_step1 c Apple Pay container

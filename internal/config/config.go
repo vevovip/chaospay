@@ -29,6 +29,7 @@ type Config struct {
 	EpayFailureWebhookURL string
 	EpayBindWebhookURL    string
 	EpayAutoWebhook       bool
+	EpayACSURL            string
 
 	// ----- Flitt -----
 	FlittMerchantID        int
@@ -86,6 +87,7 @@ func Load() Config { //nolint:funlen
 		EpayFailureWebhookURL: envOrDefault("PG_EPAY_FAILURE_POSTLINK_URL", "http://payment-gateway-go-nginx:80/api/v1/payment-gateway/webhook/epay_v2/failure_postlink"),
 		EpayBindWebhookURL:    envOrDefault("PG_EPAY_BIND_POSTLINK_URL", "http://payment-gateway-go-nginx:80/api/v1/payment-gateway/webhook/epay/postlink/bind"),
 		EpayAutoWebhook:       epayAutoWebhook,
+		EpayACSURL:            envOrDefault("CHAOSPAY_EPAY_ACS_URL", "http://chaospay:8532/epay/3ds/acs"),
 
 		FlittMerchantID:        flittMerchantID,
 		FlittSecret:            envOrDefault("CHAOSPAY_FLITT_SECRET", "test"),

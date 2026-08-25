@@ -18,7 +18,7 @@ type EpayAuthorizeInput struct {
 	TerminalID      string
 	AccountID       string
 	CardID          string // если задан → платёж сохранённой картой (Kind=KindEpayPay)
-	PaymentType     string // "cardId" / "applePay" / ""
+	PaymentType     string // "cardId" / "applePay" / "googlePay" / ""
 	Description     string
 	Email           string
 	Phone           string
@@ -26,11 +26,14 @@ type EpayAuthorizeInput struct {
 	FailurePostlink string
 	CardSave        bool
 	ClientID        string // OAuth client_id (для трассировки)
-	HasCryptogram   bool   // true если запрос пришёл с cryptogram (новая карта или Apple Pay)
+	HasCryptogram   bool   // true если запрос пришёл с cryptogram (новая карта или кошелёк)
+	Requires3DS     bool   // true если сценарий требует проверку 3DS: запись ждёт confirm
 }
 
 // EpayAuthorize создаёт запись Halyk-платежа в статусе Authorized (без 3DS-челленджа).
-// 3DS-челлендж эмулируется сценарием Force3DS на стороне порта (не меняет state).
+//
+// При Requires3DS запись остаётся в StatusNew: деньги ещё не захолдированы, операцию
+// доводит confirm после проверки. Иначе confirm упирался бы в переход Authorized→Authorized.
 func (s *Service) EpayAuthorize(in EpayAuthorizeInput) (*pay.Record, error) {
 	if in.Amount <= 0 {
 		return nil, errors.New("amount must be positive")
@@ -39,6 +42,8 @@ func (s *Service) EpayAuthorize(in EpayAuthorizeInput) (*pay.Record, error) {
 	if in.HasCryptogram {
 		if in.PaymentType == "applePay" {
 			kind = pay.KindEpayApplePay
+		} else if in.PaymentType == "googlePay" {
+			kind = pay.KindEpayGooglePay
 		} else if in.CardSave {
 			kind = pay.KindEpayBind
 		} else {
@@ -84,6 +89,10 @@ func (s *Service) EpayAuthorize(in EpayAuthorizeInput) (*pay.Record, error) {
 	}
 	rec.EpayID = fmt.Sprintf("mock-epay-%d", rec.PaymentID)
 	s.repo.Create(rec)
+
+	if in.Requires3DS {
+		return rec, nil
+	}
 
 	// Halyk возвращает успешный AuthorizeResponse сразу — это эквивалент Freedom-Hold.
 	// Переводим в Authorized, чтобы потом можно было сделать Charge/Cancel/Refund.
