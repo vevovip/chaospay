@@ -9,6 +9,7 @@ import (
 
 	apppay "github.com/vevovip/chaospay/internal/application/pay"
 	appscenario "github.com/vevovip/chaospay/internal/application/scenario"
+	"github.com/vevovip/chaospay/internal/domain/pay"
 	infraepay "github.com/vevovip/chaospay/internal/infrastructure/epay"
 	"github.com/vevovip/chaospay/internal/infrastructure/memstore"
 	"github.com/vevovip/chaospay/internal/infrastructure/pgclient"
@@ -175,5 +176,65 @@ func TestEpay_BankInvalidJSONReturns400(t *testing.T) {
 	defer resp.Body.Close()
 	if resp.StatusCode != 400 {
 		t.Errorf("invalid JSON → 400, got %d", resp.StatusCode)
+	}
+}
+
+// TestEpay_CryptopayGooglePayToken — Halyk зарегистрирован в Google Pay как шлюз,
+// поэтому мерчант присылает платёжный токен целиком, а не расшифрованные данные карты.
+func TestEpay_CryptopayGooglePayToken(t *testing.T) {
+	srv, svc := newTestServer(t)
+	defer srv.Close()
+
+	reqJSON := `{"amount":5000,"invoiceId":"000124","currency":"KZT","paymentType":"googlePay",
+		"googlePay":{"apiVersion":2,"apiVersionMinor":0,"paymentMethodData":{"tokenizationData":
+		{"type":"PAYMENT_GATEWAY","token":"{\"protocolVersion\":\"ECv2\",\"signedMessage\":\"signed\"}"}}}}`
+	resp, err := http.Post(srv.URL+"/api/payment/cryptopay", "application/json", strings.NewReader(reqJSON))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != 200 {
+		t.Fatalf("status = %d, want 200", resp.StatusCode)
+	}
+	var out infraepay.AuthorizeResponse
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		t.Fatal(err)
+	}
+	if out.ID == "" {
+		t.Error("response.id should not be empty")
+	}
+
+	records := svc.Repo().List()
+	if len(records) != 1 {
+		t.Fatalf("repo should have 1 record, got %d", len(records))
+	}
+	// Токен кошелька — такое же основание для платежа, как криптограмма карты:
+	// без этого запись ушла бы в bind-flow вместо оплаты.
+	if records[0].Kind != pay.KindEpayGooglePay {
+		t.Errorf("kind = %s, want %s", records[0].Kind, pay.KindEpayGooglePay)
+	}
+}
+
+// TestEpay_CryptopayGooglePayEmptyToken — пустой токен не считается платёжными данными
+func TestEpay_CryptopayGooglePayEmptyToken(t *testing.T) {
+	srv, svc := newTestServer(t)
+	defer srv.Close()
+
+	reqJSON := `{"amount":5000,"invoiceId":"000125","currency":"KZT","paymentType":"googlePay",
+		"googlePay":{"apiVersion":2,"apiVersionMinor":0,"paymentMethodData":{"tokenizationData":
+		{"type":"PAYMENT_GATEWAY","token":""}}}}`
+	resp, err := http.Post(srv.URL+"/api/payment/cryptopay", "application/json", strings.NewReader(reqJSON))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+
+	records := svc.Repo().List()
+	if len(records) != 1 {
+		t.Fatalf("repo should have 1 record, got %d", len(records))
+	}
+	if records[0].Kind == pay.KindEpayGooglePay {
+		t.Error("без токена платёж кошелька заводиться не должен")
 	}
 }

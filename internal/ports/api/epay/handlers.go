@@ -37,7 +37,7 @@ func (c *Controller) handleCryptopay(r *http.Request, body []byte, sc *scenario.
 		Postlink:        req.Postlink,
 		FailurePostlink: req.FailurePostlink,
 		CardSave:        req.CardSave,
-		HasCryptogram:   req.Cryptogram != "" || req.CryptogramApplePay != "" || req.CryptogramGooglePay != "",
+		HasCryptogram:   req.Cryptogram != "" || req.CryptogramApplePay != "" || req.GooglePay.HasToken(),
 		Requires3DS:     sc != nil && sc.Action == scenario.ActionForce3DS,
 	})
 	if err != nil {

@@ -39,26 +39,48 @@ type CardID struct {
 // AuthorizeRequest — POST /api/payment/cryptopay (новая карта/Apple Pay)
 // и POST /api/payments/cards/auth (сохранённая карта).
 type AuthorizeRequest struct {
-	Amount              int     `json:"amount"`
-	TerminalID          string  `json:"terminalId,omitempty"`
-	InvoiceID           string  `json:"invoiceId,omitempty"`
-	Currency            string  `json:"currency,omitempty"`
-	Name                string  `json:"name,omitempty"`
-	Cryptogram          string  `json:"cryptogram,omitempty"`         // base64(RSA(cardJSON))
-	CryptogramApplePay  string  `json:"cryptogramApplePay,omitempty"` // base64 Apple Pay token
-	ECI                 string  `json:"eci,omitempty"`                // 3D-Secure ECI indicator
-	Description         string  `json:"description,omitempty"`
-	CardID              *CardID `json:"cardId,omitempty"`
-	AccountID           string  `json:"accountId,omitempty"`
-	PaymentType         string  `json:"paymentType,omitempty"` // "cardId" / "applePay"
-	Postlink            string  `json:"postlink,omitempty"`
-	CryptogramGooglePay string  `json:"cryptogramGooglePay,omitempty"`
-	FailurePostlink     string  `json:"failurePostlink,omitempty"`
-	Backlink            string  `json:"backlink,omitempty"`
-	FailureBacklink     string  `json:"failureBacklink,omitempty"`
-	Email               string  `json:"email,omitempty"`
-	Phone               string  `json:"phone,omitempty"`
-	CardSave            bool    `json:"cardSave,omitempty"` // true → платёж + привязка карты
+	Amount             int            `json:"amount"`
+	TerminalID         string         `json:"terminalId,omitempty"`
+	InvoiceID          string         `json:"invoiceId,omitempty"`
+	Currency           string         `json:"currency,omitempty"`
+	Name               string         `json:"name,omitempty"`
+	Cryptogram         string         `json:"cryptogram,omitempty"`         // base64(RSA(cardJSON))
+	CryptogramApplePay string         `json:"cryptogramApplePay,omitempty"` // base64 Apple Pay token
+	ECI                string         `json:"eci,omitempty"`                // 3D-Secure ECI indicator
+	Description        string         `json:"description,omitempty"`
+	CardID             *CardID        `json:"cardId,omitempty"`
+	AccountID          string         `json:"accountId,omitempty"`
+	PaymentType        string         `json:"paymentType,omitempty"` // "cardId" / "applePay" / "googlePay"
+	Postlink           string         `json:"postlink,omitempty"`
+	GooglePay          *GooglePayData `json:"googlePay,omitempty"` // платёжный токен Google целиком
+	FailurePostlink    string         `json:"failurePostlink,omitempty"`
+	Backlink           string         `json:"backlink,omitempty"`
+	FailureBacklink    string         `json:"failureBacklink,omitempty"`
+	Email              string         `json:"email,omitempty"`
+	Phone              string         `json:"phone,omitempty"`
+	CardSave           bool           `json:"cardSave,omitempty"` // true → платёж + привязка карты
+}
+
+// GooglePayData — платёжный токен Google Pay. Halyk зарегистрирован в Google Pay как
+// шлюз, поэтому мерчант присылает токен как есть, а расшифровка — на стороне банка.
+type GooglePayData struct {
+	APIVersion        int                 `json:"apiVersion"`
+	APIVersionMinor   int                 `json:"apiVersionMinor"`
+	PaymentMethodData GooglePayMethodData `json:"paymentMethodData"`
+}
+
+type GooglePayMethodData struct {
+	TokenizationData GooglePayTokenizationData `json:"tokenizationData"`
+}
+
+type GooglePayTokenizationData struct {
+	Type  string `json:"type"`
+	Token string `json:"token"`
+}
+
+// HasToken — токен пришёл и не пустой
+func (g *GooglePayData) HasToken() bool {
+	return g != nil && g.PaymentMethodData.TokenizationData.Token != ""
 }
 
 // Secure3D — блок 3D-Secure в AuthorizeResponse. Если null — 3DS не требуется.
