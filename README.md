@@ -130,7 +130,8 @@ tests/integration/                 ← system-tests, отдельный Go-мо�
 | `CHAOSPAY_DELAY_SECONDS` | `0` | Глобальная задержка ответов |
 | `CHAOSPAY_FREEDOM_MERCHANT_ID` | `100001` | merchant_id Freedom-терминала |
 | `CHAOSPAY_FREEDOM_TERMINAL_ID` | `1` | terminal_id |
-| `CHAOSPAY_FREEDOM_SECRET` | `mock-secret-key` | secret для MD5-подписи |
+| `CHAOSPAY_FREEDOM_SECRET` | `mock-secret-key` | secret для MD5-подписи (кабинет по умолчанию) |
+| `CHAOSPAY_FREEDOM_MERCHANTS` | пусто | Дополнительные кабинеты: `merchant_id:secret,merchant_id:secret` |
 | `CHAOSPAY_FREEDOM_AUTO_WEBHOOK` | `false` | Авто-webhook на смену статуса |
 | `CHAOSPAY_FREEDOM_HOSTED_URL` | `http://localhost:48532/panel?tab=cards` | redirect_url для PayPage |
 | `PG_WEBHOOK_URL` | `http://...freedom-qr` | URL PG для QR webhook'а |

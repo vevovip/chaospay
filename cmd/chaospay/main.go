@@ -45,8 +45,8 @@ func main() {
 	scenarioStore := memstore.NewScenarioStore()
 	requestLog := memstore.NewRequestLog(0)
 
-	payWebhookClient := pgclient.NewPayClient(cfg.PayWebhookURL, cfg.Secret)
-	cardWebhookClient := pgclient.NewCardClient(cfg.CardWebhookURL, cfg.Secret)
+	payWebhookClient := pgclient.NewPayClient(cfg.PayWebhookURL, cfg.SecretFor)
+	cardWebhookClient := pgclient.NewCardClient(cfg.CardWebhookURL, cfg.SecretFor)
 	qrWebhookClient := pgclient.NewQRClient(cfg.QRWebhookURL)
 	epayWebhookClient := pgclient.NewEpayClient(cfg.EpaySuccessWebhookURL, cfg.EpayFailureWebhookURL, cfg.EpayBindWebhookURL)
 	epayTokens := infraepay.NewTokenStore()
@@ -73,6 +73,7 @@ func main() {
 	// Ports / API
 	payCtrl := payports.NewController(payService, scenarioService, requestLog, payports.Config{
 		Secret:             cfg.Secret,
+		Secrets:            cfg.Merchants,
 		DefaultTerminalID:  cfg.TerminalID,
 		HostedFormURL:      cfg.HostedFormURL,
 		GlobalDelaySeconds: cfg.GlobalDelaySeconds,

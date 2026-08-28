@@ -19,6 +19,7 @@ type HoldInitInput struct {
 	OrderID        uint
 	MerchantID     uint
 	TerminalID     int
+	CabinetID      int
 	UserID         uint
 	Amount         uint
 	Currency       string
@@ -34,6 +35,7 @@ type HostedInput struct {
 	OrderID     uint
 	MerchantID  uint
 	TerminalID  int
+	CabinetID   int
 	UserID      uint
 	Amount      uint
 	Currency    string
@@ -48,6 +50,7 @@ type BindInput struct {
 	OrderID     uint
 	MerchantID  uint
 	TerminalID  int
+	CabinetID   int
 	UserID      uint
 	PostLink    string
 	RedirectURL string

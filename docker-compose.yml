@@ -20,6 +20,10 @@ services:
       - CHAOSPAY_FREEDOM_MERCHANT_ID=${CHAOSPAY_FREEDOM_MERCHANT_ID:-100001}
       - CHAOSPAY_FREEDOM_SECRET=${CHAOSPAY_FREEDOM_SECRET:-mock-secret-key}
       - CHAOSPAY_FREEDOM_TERMINAL_ID=${CHAOSPAY_FREEDOM_TERMINAL_ID:-1}
+      # Несколько кабинетов одного банка: "merchant_id:secret,merchant_id:secret".
+      # Подпись каждого запроса проверяется ключом кабинета из pg_merchant_id.
+      # Кабинет из CHAOSPAY_FREEDOM_MERCHANT_ID добавляется в список сам и остаётся дефолтным.
+      - CHAOSPAY_FREEDOM_MERCHANTS=${CHAOSPAY_FREEDOM_MERCHANTS:-}
       # Если true — мок автоматически шлёт webhook на каждый переход в Authorized/Captured/...
       # По умолчанию false — webhook отправляется кнопкой Send Webhook из панели.
       - CHAOSPAY_FREEDOM_AUTO_WEBHOOK=${CHAOSPAY_FREEDOM_AUTO_WEBHOOK:-false}

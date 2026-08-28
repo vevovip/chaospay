@@ -16,17 +16,17 @@ import (
 
 // PayClient отправляет form-encoded webhook на /api/v1/payment-gateway/webhook/freedompay.
 type PayClient struct {
-	url    string
-	secret string
-	client *http.Client
+	url     string
+	secrets SecretResolver
+	client  *http.Client
 }
 
 // NewPayClient конструктор.
-func NewPayClient(webhookURL, secret string) *PayClient {
+func NewPayClient(webhookURL string, secrets SecretResolver) *PayClient {
 	return &PayClient{
-		url:    webhookURL,
-		secret: secret,
-		client: &http.Client{Timeout: 10 * time.Second},
+		url:     webhookURL,
+		secrets: secrets,
+		client:  &http.Client{Timeout: 10 * time.Second},
 	}
 }
 
@@ -37,7 +37,7 @@ func (c *PayClient) Send(rec *pay.Record, success, captured bool) (int, error) {
 		return 0, fmt.Errorf("nil record")
 	}
 	form := buildPayForm(rec, success, captured)
-	signPayForm(form, c.secret)
+	signPayForm(form, c.secrets(rec.MerchantID))
 
 	body := form.Encode()
 	req, err := http.NewRequest(http.MethodPost, c.url, strings.NewReader(body))
@@ -102,6 +102,9 @@ func buildPayForm(rec *pay.Record, success, captured bool) url.Values {
 	form.Set("pg_card_brand", defaultStr(rec.CardBrand, "VISA"))
 	form.Set("pg_payment_method", "bankcard")
 	form.Set("terminal_id", strconv.Itoa(rec.TerminalID))
+	if rec.CabinetID != 0 {
+		form.Set("cabinet_id", strconv.Itoa(rec.CabinetID))
+	}
 	return form
 }
 

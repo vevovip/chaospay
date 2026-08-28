@@ -99,6 +99,8 @@ FREEDOM_PAY_CUSTOMER_HOST=http://chaospay:8532
 
 Подпись XML-запросов проверяется по MD5 алгоритму, совместимому с PG SDK (`pkg/freedompay/freedompay.go`). `CHAOSPAY_FREEDOM_SECRET` должен совпадать с `merchantSecret` тестового терминала в БД PG (по умолчанию `mock-secret-key`, merchant_id=100001, terminal_id=1).
 
+Кабинетов может быть несколько: `CHAOSPAY_FREEDOM_MERCHANTS=merchant_id:secret,merchant_id:secret`. Ключ выбирается по `pg_merchant_id` запроса, им же подписывается ответ и постлинк платежа. Подробности — в [docs/setup.md](docs/setup.md).
+
 ## Testing для команд, использующих мок
 
 Сценарий типичного теста (например, реакции PG на ошибку банка):

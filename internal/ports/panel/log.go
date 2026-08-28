@@ -45,7 +45,7 @@ func (c *Controller) renderLogTab(w http.ResponseWriter, b bank.Bank) {
 	}
 
 	fmt.Fprint(w, `<div class="table-wrap"><table>
-<tr><th>ID</th><th>Time</th><th>Method</th><th>URL</th><th>Endpoint</th><th>PayID</th><th>Sig</th><th>Scenario</th><th>HTTP</th><th>Δms</th></tr>`)
+<tr><th>ID</th><th>Time</th><th>Method</th><th>URL</th><th>Endpoint</th><th>PayID</th><th>Merchant</th><th>Sig</th><th>Scenario</th><th>HTTP</th><th>Δms</th></tr>`)
 	for _, e := range entries {
 		sigCls := "signature-bad"
 		sigText := "✗"
@@ -56,6 +56,10 @@ func (c *Controller) renderLogTab(w http.ResponseWriter, b bank.Bank) {
 		scenarioStr := "-"
 		if e.ScenarioHit != "" {
 			scenarioStr = fmt.Sprintf("%s (%s)", e.ScenarioHit, e.ScenarioName)
+		}
+		merchantStr := e.MerchantID
+		if merchantStr == "" {
+			merchantStr = "-"
 		}
 		httpCls := logHTTPClass(e.StatusCode)
 		durationText := fmt.Sprintf("%d", e.DurationMS)
@@ -69,12 +73,13 @@ func (c *Controller) renderLogTab(w http.ResponseWriter, b bank.Bank) {
 <td><code>%s</code></td>
 <td>%s</td>
 <td>%s</td>
+<td>%s</td>
 <td><span class="%s">%s</span></td>
 <td>%s</td>
 <td><span class="%s">%d</span></td>
 <td>%s</td>
 </tr>
-<tr id="log-detail-%d" class="detail" style="display:none;"><td colspan="10">
+<tr id="log-detail-%d" class="detail" style="display:none;"><td colspan="11">
 <div class="kv">
 <div class="key">Full page</div><div class="val"><a href="/panel/log/%d">Open request #%d</a></div>
 <div class="key">Request body</div><div class="val"><pre class="body">%s</pre></div>
@@ -88,6 +93,7 @@ func (c *Controller) renderLogTab(w http.ResponseWriter, b bank.Bank) {
 			e.URL,
 			e.Endpoint,
 			e.PaymentID,
+			merchantStr,
 			sigCls, sigText,
 			scenarioStr,
 			httpCls,

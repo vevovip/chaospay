@@ -19,6 +19,7 @@ func (c *Controller) handleHoldInit(req *freedompay.ParsedRequest, _ *scenario.S
 		OrderID:        uintFromReq(req, "pg_order_id", 0),
 		MerchantID:     uintFromReq(req, "pg_merchant_id", 0),
 		TerminalID:     extractTerminalID(req, c.cfg.DefaultTerminalID),
+		CabinetID:      extractCabinetID(req),
 		UserID:         uintFromReq(req, "pg_user_id", 0),
 		Amount:         uintFromReq(req, "pg_amount", 0),
 		Currency:       req.Get("pg_currency", ""),
@@ -206,6 +207,7 @@ func (c *Controller) handleInitPayment(req *freedompay.ParsedRequest, _ *scenari
 		OrderID:     uintFromReq(req, "pg_order_id", 0),
 		MerchantID:  uintFromReq(req, "pg_merchant_id", 0),
 		TerminalID:  extractTerminalID(req, c.cfg.DefaultTerminalID),
+		CabinetID:   extractCabinetID(req),
 		UserID:      uintFromReq(req, "pg_user_id", 0),
 		Amount:      uintFromReq(req, "pg_amount", 0),
 		Currency:    req.Get("pg_currency", ""),
@@ -231,6 +233,7 @@ func (c *Controller) handleAddCard(req *freedompay.ParsedRequest, _ *scenario.Sc
 		OrderID:    uintFromReq(req, "pg_order_id", 0),
 		MerchantID: uintFromReq(req, "pg_merchant_id", 0),
 		TerminalID: extractTerminalID(req, c.cfg.DefaultTerminalID),
+		CabinetID:  extractCabinetID(req),
 		UserID:     uintFromReq(req, "pg_user_id", 0),
 		PostLink:   req.Get("pg_post_link", ""),
 	})

@@ -15,17 +15,17 @@ import (
 
 // CardClient отправляет XML-webhook на /api/v1/payment-gateway/webhook/freedompay/card.
 type CardClient struct {
-	url    string
-	secret string
-	client *http.Client
+	url     string
+	secrets SecretResolver
+	client  *http.Client
 }
 
 // NewCardClient конструктор.
-func NewCardClient(webhookURL, secret string) *CardClient {
+func NewCardClient(webhookURL string, secrets SecretResolver) *CardClient {
 	return &CardClient{
-		url:    webhookURL,
-		secret: secret,
-		client: &http.Client{Timeout: 10 * time.Second},
+		url:     webhookURL,
+		secrets: secrets,
+		client:  &http.Client{Timeout: 10 * time.Second},
 	}
 }
 
@@ -50,7 +50,7 @@ func (c *CardClient) Send(rec *pay.Record) (int, error) {
 	fields = fields.Set("pg_country", "KZ")
 	salt := freedompay.GenerateSalt(freedompay.SaltLength)
 	fields = fields.Set("pg_salt", salt)
-	sig := freedompay.Sign("card", fields, c.secret)
+	sig := freedompay.Sign("card", fields, c.secrets(rec.MerchantID))
 	fields = fields.Set("pg_sig", sig)
 
 	xmlStr := freedompay.RenderResponse("response", fields)

@@ -15,7 +15,7 @@ import (
 
 // applyScenarioBefore — для сценариев, не нуждающихся в нормальном handler-выполнении.
 // Возвращает true, если ответ уже отправлен.
-func (c *Controller) applyScenarioBefore(w http.ResponseWriter, sc *scenario.Scenario, req *freedompay.ParsedRequest, responseScriptName string, entry *requestlog.Entry, started time.Time) bool {
+func (c *Controller) applyScenarioBefore(w http.ResponseWriter, sc *scenario.Scenario, req *freedompay.ParsedRequest, responseScriptName, secret string, entry *requestlog.Entry, started time.Time) bool {
 	// Transport-level: применимо ко всем endpoint-ам.
 	if scenarioapply.Transport(w, sc, entry, started, c.log) {
 		return true
@@ -34,7 +34,7 @@ func (c *Controller) applyScenarioBefore(w http.ResponseWriter, sc *scenario.Sce
 		fields = fields.Set("pg_status", "error")
 		fields = fields.Set("pg_error_code", errCode)
 		fields = fields.Set("pg_failure_description", errMsg)
-		body := signedXML("response", responseScriptName, fields, c.cfg.Secret)
+		body := signedXML("response", responseScriptName, fields, secret)
 		entry.StatusCode = http.StatusOK
 		entry.ResponseBody = requestlog.Truncate(body, 4000)
 		entry.DurationMS = time.Since(started).Milliseconds()
@@ -49,7 +49,7 @@ func (c *Controller) applyScenarioBefore(w http.ResponseWriter, sc *scenario.Sce
 		fields = fields.Set("pg_status", "error")
 		fields = fields.Set("pg_error_code", errCode)
 		fields = fields.Set("pg_error_description", errMsg)
-		body := signedXML("response", responseScriptName, fields, c.cfg.Secret)
+		body := signedXML("response", responseScriptName, fields, secret)
 		entry.StatusCode = http.StatusOK
 		entry.ResponseBody = requestlog.Truncate(body, 4000)
 		entry.DurationMS = time.Since(started).Milliseconds()
@@ -64,7 +64,7 @@ func (c *Controller) applyScenarioBefore(w http.ResponseWriter, sc *scenario.Sce
 		fields = fields.Set("pg_status", "error")
 		fields = fields.Set("pg_error_code", errCode)
 		fields = fields.Set("pg_error_description", errMsg)
-		body := signedXML("response", responseScriptName, fields, c.cfg.Secret)
+		body := signedXML("response", responseScriptName, fields, secret)
 		entry.StatusCode = http.StatusOK
 		entry.ResponseBody = requestlog.Truncate(body, 4000)
 		entry.DurationMS = time.Since(started).Milliseconds()

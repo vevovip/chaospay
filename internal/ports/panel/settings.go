@@ -3,6 +3,7 @@ package panel
 import (
 	"fmt"
 	"net/http"
+	"strings"
 
 	"github.com/vevovip/chaospay/internal/config"
 )
@@ -58,6 +59,16 @@ func (c *Controller) renderSettingsTab(w http.ResponseWriter) {
 <div class="key">MOCK_FREEDOM_MERCHANT_ID</div><div class="val">%d</div>
 <div class="key">MOCK_FREEDOM_TERMINAL_ID</div><div class="val">%d</div>
 <div class="key">MOCK_FREEDOM_SECRET</div><div class="val">%s</div>
+</div>
+</div>
+
+<div class="panel-card">
+<div class="section-title" style="margin-bottom:12px;">
+<h2>Freedom Pay Cabinets</h2>
+<p>Кабинеты из <code>CHAOSPAY_FREEDOM_MERCHANTS</code> в формате <code>merchant_id:secret,...</code>. Подпись каждого запроса проверяется ключом кабинета из <code>pg_merchant_id</code>; кабинет, которого здесь нет, получает ключ по умолчанию и упрётся в invalid signature.</p>
+</div>
+<div class="kv">
+%s
 </div>
 </div>
 
@@ -147,6 +158,7 @@ func (c *Controller) renderSettingsTab(w http.ResponseWriter) {
 		paymentCount, qrCount, scenarioCount, logCount,
 		autoWebhookText, autoWebhookHint, c.cfg.GlobalDelaySeconds,
 		c.cfg.MerchantID, c.cfg.TerminalID, config.MaskSecret(c.cfg.Secret),
+		renderFreedomCabinets(c.cfg),
 		c.cfg.HostedFormURL,
 		c.cfg.EpayClientID, config.MaskSecret(c.cfg.EpayClientSecret), c.cfg.EpayTerminalUUID, c.cfg.EpayAutoWebhook,
 		c.cfg.FlittMerchantID, config.MaskSecret(c.cfg.FlittSecret), c.cfg.FlittAutoWebhook,
@@ -154,4 +166,19 @@ func (c *Controller) renderSettingsTab(w http.ResponseWriter) {
 		c.cfg.EpaySuccessWebhookURL, c.cfg.EpayFailureWebhookURL, c.cfg.EpayBindWebhookURL,
 		c.cfg.FlittSuccessWebhookURL, c.cfg.FlittBindWebhookURL,
 	)
+}
+
+// renderFreedomCabinets рисует список кабинетов Freedom Pay с маской ключа.
+func renderFreedomCabinets(cfg config.Config) string {
+	var b strings.Builder
+	for _, id := range cfg.MerchantIDs() {
+		suffix := ""
+		if id == cfg.MerchantID {
+			suffix = " (default)"
+		}
+		fmt.Fprintf(&b, `<div class="key">%d%s</div><div class="val">%s</div>`,
+			id, suffix, config.MaskSecret(cfg.SecretFor(id)))
+	}
+
+	return b.String()
 }

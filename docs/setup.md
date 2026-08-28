@@ -79,6 +79,28 @@ FREEDOM_PAY_CUSTOMER_HOST=http://chaospay:8532
 | `CHAOSPAY_FREEDOM_MERCHANT_ID` | `100001` |
 | `CHAOSPAY_FREEDOM_SECRET` | `mock-secret-key` |
 | `CHAOSPAY_FREEDOM_TERMINAL_ID` | `1` |
+| `CHAOSPAY_FREEDOM_MERCHANTS` | пусто |
+
+### Несколько кабинетов одного банка
+
+Если тестируешь переезд платежей из одного кабинета в другой, заведи оба через
+`CHAOSPAY_FREEDOM_MERCHANTS` в формате `merchant_id:secret,merchant_id:secret`:
+
+```
+CHAOSPAY_FREEDOM_MERCHANTS=100001:mock-secret-key,100002:mock-secret-key-2
+```
+
+Кабинет из `CHAOSPAY_FREEDOM_MERCHANT_ID` попадает в список сам и остаётся ключом по умолчанию.
+Подпись каждого запроса проверяется ключом кабинета из `pg_merchant_id`, ответ подписывается им же.
+Запрос в кабинет, которого нет в списке, получит ключ по умолчанию и, скорее всего, упрётся в
+`invalid signature` — это и есть сигнал, что платёж ушёл не в тот кабинет.
+
+Заведённые кабинеты видны на вкладке Settings, номер кабинета каждого запроса — в колонке
+Merchant вкладки Request Log.
+
+Если вызывающая сторона кладёт номер кабинета в `merchant_params.cabinet_id`, мок запоминает
+его на платеже и возвращает в постлинке полем `cabinet_id` — по нему принимающая сторона
+выбирает ключ до того, как найдёт сам платёж.
 
 ### Создать терминал в БД через CLI PG
 

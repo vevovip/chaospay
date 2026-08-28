@@ -18,6 +18,12 @@ import (
 	"github.com/vevovip/chaospay/internal/infrastructure/memstore"
 )
 
+const (
+	merchantParamsField = "merchant_params"
+	terminalIDParam     = "terminal_id"
+	cabinetIDParam      = "cabinet_id"
+)
+
 // XMLHandler возвращает поля ответа либо ошибку.
 type xmlHandler func(req *freedompay.ParsedRequest, sc *scenario.Scenario) (freedompay.OrdMap, error)
 
@@ -31,10 +37,35 @@ type Controller struct {
 
 // Config — настройки контроллера.
 type Config struct {
-	Secret             string
+	// Secret — ключ кабинета по умолчанию: им подписаны запросы без pg_merchant_id
+	// и кабинетов, которых нет в Secrets.
+	Secret string
+	// Secrets — ключи кабинетов: merchant_id → secret. PG может ходить в несколько
+	// кабинетов одного банка, и подпись каждой команды проверяется ключом своего.
+	Secrets            map[uint]string
 	DefaultTerminalID  int
 	HostedFormURL      string
 	GlobalDelaySeconds int
+}
+
+// secretFor возвращает ключ кабинета из pg_merchant_id запроса.
+func (c Config) secretFor(merchantID string) string {
+	if merchantID == "" {
+		return c.Secret
+	}
+
+	id, err := strconv.ParseUint(merchantID, 10, 64)
+	if err != nil {
+		return c.Secret
+	}
+
+	if secret, ok := c.Secrets[uint(id)]; ok {
+		return secret
+	}
+
+	log.Printf("[PAY] кабинет %s не заведен в моке, пробуем ключ по умолчанию", merchantID)
+
+	return c.Secret
 }
 
 // NewController конструктор.
@@ -116,6 +147,7 @@ func (c *Controller) xmlEndpoint(endpoint, responseScriptName string, fn xmlHand
 		entry.PaymentID = req.Get("pg_payment_id", "")
 		entry.OrderID = req.Get("pg_order_id", "")
 		entry.MerchantID = req.Get("pg_merchant_id", "")
+		secret := c.cfg.secretFor(entry.MerchantID)
 
 		if c.cfg.GlobalDelaySeconds > 0 {
 			time.Sleep(time.Duration(c.cfg.GlobalDelaySeconds) * time.Second)
@@ -123,11 +155,12 @@ func (c *Controller) xmlEndpoint(endpoint, responseScriptName string, fn xmlHand
 
 		// Подпись: scriptName входящего запроса = endpoint.
 		incomingSig := req.Get("pg_sig", "")
-		expected, sigOK := freedompay.Verify(endpoint, req.Fields, c.cfg.Secret, incomingSig)
+		expected, sigOK := freedompay.Verify(endpoint, req.Fields, secret, incomingSig)
 		entry.SignatureOK = sigOK
 		if !sigOK {
-			log.Printf("[PAY %s] invalid signature: got=%s expected=%s fields=%v", endpoint, incomingSig, expected, req.Fields)
-			c.respondFailure(w, entry, started, responseScriptName, "2000", "invalid signature: got "+incomingSig)
+			log.Printf("[PAY %s] invalid signature: merchant=%s got=%s expected=%s fields=%v",
+				endpoint, entry.MerchantID, incomingSig, expected, req.Fields)
+			c.respondFailure(w, entry, started, responseScriptName, secret, "2000", "invalid signature: got "+incomingSig)
 			return
 		}
 
@@ -142,7 +175,7 @@ func (c *Controller) xmlEndpoint(endpoint, responseScriptName string, fn xmlHand
 		if sc != nil {
 			entry.ScenarioHit = sc.ID
 			entry.ScenarioName = string(sc.Action)
-			if applied := c.applyScenarioBefore(w, sc, req, responseScriptName, entry, started); applied {
+			if applied := c.applyScenarioBefore(w, sc, req, responseScriptName, secret, entry, started); applied {
 				return
 			}
 		}
@@ -150,7 +183,7 @@ func (c *Controller) xmlEndpoint(endpoint, responseScriptName string, fn xmlHand
 		// Вызов handler-а
 		fields, fnErr := fn(req, sc)
 		if fnErr != nil {
-			c.respondFailure(w, entry, started, responseScriptName, "100", fnErr.Error())
+			c.respondFailure(w, entry, started, responseScriptName, secret, "100", fnErr.Error())
 			return
 		}
 
@@ -158,7 +191,7 @@ func (c *Controller) xmlEndpoint(endpoint, responseScriptName string, fn xmlHand
 			fields = applyScenarioAfter(sc, fields)
 		}
 
-		body := signedXML("response", responseScriptName, fields, c.cfg.Secret)
+		body := signedXML("response", responseScriptName, fields, secret)
 
 		if sc != nil && sc.Action == scenario.ActionInvalidSignature {
 			body = freedompay.ReplaceTagValue(body, "pg_sig", "00000000000000000000000000000000")
@@ -204,7 +237,7 @@ func (c *Controller) respondError(w http.ResponseWriter, entry *requestlog.Entry
 	http.Error(w, msg, code)
 }
 
-func (c *Controller) respondFailure(w http.ResponseWriter, entry *requestlog.Entry, started time.Time, responseScriptName, errCode, errDesc string) {
+func (c *Controller) respondFailure(w http.ResponseWriter, entry *requestlog.Entry, started time.Time, responseScriptName, secret, errCode, errDesc string) {
 	fields := freedompay.OrdMap{}
 	fields = fields.Set("pg_status", "error")
 	if errCode != "" {
@@ -213,7 +246,7 @@ func (c *Controller) respondFailure(w http.ResponseWriter, entry *requestlog.Ent
 	if errDesc != "" {
 		fields = fields.Set("pg_error_description", errDesc)
 	}
-	body := signedXML("response", responseScriptName, fields, c.cfg.Secret)
+	body := signedXML("response", responseScriptName, fields, secret)
 	entry.StatusCode = http.StatusOK
 	entry.ResponseBody = requestlog.Truncate(body, 4000)
 	entry.DurationMS = time.Since(started).Milliseconds()
@@ -236,10 +269,21 @@ func uintFromReq(req *freedompay.ParsedRequest, key string, def uint) uint {
 
 // extractTerminalID читает terminal_id из merchant_params/верхнего поля.
 func extractTerminalID(req *freedompay.ParsedRequest, defaultID int) int {
-	if v, ok := req.Fields.Get("merchant_params"); ok {
+	return merchantParamInt(req, terminalIDParam, defaultID)
+}
+
+// extractCabinetID читает cabinet_id из merchant_params. Ноль означает, что вызывающая
+// сторона еще не проставляет кабинет — тогда в постлинк его не кладем.
+func extractCabinetID(req *freedompay.ParsedRequest) int {
+	return merchantParamInt(req, cabinetIDParam, 0)
+}
+
+// merchantParamInt читает числовой параметр из merchant_params либо из поля верхнего уровня.
+func merchantParamInt(req *freedompay.ParsedRequest, key string, defaultValue int) int {
+	if v, ok := req.Fields.Get(merchantParamsField); ok {
 		if mp, ok := v.(freedompay.OrdMap); ok {
-			if t, ok := mp.Get("terminal_id"); ok {
-				if s, ok := t.(string); ok {
+			if raw, ok := mp.Get(key); ok {
+				if s, ok := raw.(string); ok {
 					if n, err := strconv.Atoi(s); err == nil {
 						return n
 					}
@@ -247,10 +291,12 @@ func extractTerminalID(req *freedompay.ParsedRequest, defaultID int) int {
 			}
 		}
 	}
-	if t := req.Get("terminal_id", ""); t != "" {
-		if n, err := strconv.Atoi(t); err == nil {
+
+	if raw := req.Get(key, ""); raw != "" {
+		if n, err := strconv.Atoi(raw); err == nil {
 			return n
 		}
 	}
-	return defaultID
+
+	return defaultValue
 }

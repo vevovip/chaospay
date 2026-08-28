@@ -78,8 +78,11 @@ type Record struct {
 	OrderID    uint
 	MerchantID uint
 	TerminalID int
-	UserID     uint
-	Kind       Kind
+	// CabinetID — кабинет эквайера из merchant_params. Возвращается в постлинке:
+	// вызывающая сторона по нему понимает, каким ключом проверять подпись колбэка.
+	CabinetID int
+	UserID    uint
+	Kind      Kind
 
 	Amount   uint
 	Currency string

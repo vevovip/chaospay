@@ -4,14 +4,22 @@ package config
 import (
 	"log"
 	"os"
+	"sort"
 	"strconv"
+	"strings"
 )
+
+// envFreedomMerchants — список кабинетов Freedom Pay в формате "merchant_id:secret,merchant_id:secret".
+const envFreedomMerchants = "CHAOSPAY_FREEDOM_MERCHANTS"
 
 // Config — все ENV-настройки.
 type Config struct {
 	// ----- Freedom Pay -----
-	MerchantID     uint
-	Secret         string
+	MerchantID uint
+	Secret     string
+	// Merchants — секреты кабинетов Freedom Pay: merchant_id → secret. Один PG может ходить
+	// в несколько кабинетов, и подпись каждого запроса проверяется ключом своего кабинета.
+	Merchants      map[uint]string
 	TerminalID     int
 	PayWebhookURL  string
 	CardWebhookURL string
@@ -72,6 +80,7 @@ func Load() Config { //nolint:funlen
 	cfg := Config{
 		MerchantID: uint(merchantID),
 		Secret:     envOrDefault("CHAOSPAY_FREEDOM_SECRET", "mock-secret-key"),
+		Merchants:  parseMerchants(os.Getenv(envFreedomMerchants)),
 		TerminalID: terminalID,
 		// PG_* ENV-имена — про целевой PG-сервис, а не про ChaosPay → оставляем как есть.
 		PayWebhookURL:  envOrDefault("PG_FREEDOM_PAY_WEBHOOK_URL", "http://payment-gateway-go-nginx:80/api/v1/payment-gateway/webhook/freedompay"),
@@ -106,10 +115,70 @@ func Load() Config { //nolint:funlen
 		ListenAddr:             envOrDefault("CHAOSPAY_LISTEN_ADDR", ":8532"),
 	}
 
-	log.Printf("[CONFIG] freedom: merchant=%d terminal=%d auto_webhook=%v", cfg.MerchantID, cfg.TerminalID, cfg.AutoWebhook)
+	cfg.Merchants[cfg.MerchantID] = cfg.Secret
+
+	log.Printf("[CONFIG] freedom: merchant=%d terminal=%d auto_webhook=%v cabinets=%v",
+		cfg.MerchantID, cfg.TerminalID, cfg.AutoWebhook, cfg.MerchantIDs())
 	log.Printf("[CONFIG] epay: client_id=%s terminal=%s auto_webhook=%v", cfg.EpayClientID, cfg.EpayTerminalUUID, cfg.EpayAutoWebhook)
 	log.Printf("[CONFIG] webhooks: pay=%s qr=%s epay_ok=%s", cfg.PayWebhookURL, cfg.QRWebhookURL, cfg.EpaySuccessWebhookURL)
 	return cfg
+}
+
+// SecretFor возвращает ключ кабинета. Неизвестный кабинет получает ключ дефолтного —
+// иначе подпись не сойдется и причина будет выглядеть как ошибка подписи, а не как
+// незаведенный в моке кабинет.
+func (c Config) SecretFor(merchantID uint) string {
+	if secret, ok := c.Merchants[merchantID]; ok {
+		return secret
+	}
+
+	return c.Secret
+}
+
+// KnownMerchant сообщает, заведен ли кабинет в моке.
+func (c Config) KnownMerchant(merchantID uint) bool {
+	_, ok := c.Merchants[merchantID]
+
+	return ok
+}
+
+// MerchantIDs возвращает номера кабинетов по возрастанию.
+func (c Config) MerchantIDs() []uint {
+	ids := make([]uint, 0, len(c.Merchants))
+	for id := range c.Merchants {
+		ids = append(ids, id)
+	}
+	sort.Slice(ids, func(i, j int) bool { return ids[i] < ids[j] })
+
+	return ids
+}
+
+// parseMerchants читает список кабинетов из строки вида "554415:secret-a,587055:secret-b".
+// Некорректные пары пропускаются с предупреждением: мок не должен падать из-за опечатки в ENV.
+func parseMerchants(raw string) map[uint]string {
+	out := make(map[uint]string)
+	for _, pair := range strings.Split(raw, ",") {
+		pair = strings.TrimSpace(pair)
+		if pair == "" {
+			continue
+		}
+
+		id, secret, ok := strings.Cut(pair, ":")
+		if !ok {
+			log.Printf("[CONFIG] %s: пропущена пара %q — нет разделителя ':'", envFreedomMerchants, pair)
+			continue
+		}
+
+		merchantID, err := strconv.ParseUint(strings.TrimSpace(id), 10, 64)
+		if err != nil {
+			log.Printf("[CONFIG] %s: пропущена пара %q — merchant id не число", envFreedomMerchants, pair)
+			continue
+		}
+
+		out[uint(merchantID)] = strings.TrimSpace(secret)
+	}
+
+	return out
 }
 
 // MaskSecret для UI Settings — показывает первые/последние 2 символа.
