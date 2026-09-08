@@ -35,18 +35,22 @@ type EpayAuthorizeInput struct {
 // При Requires3DS запись остаётся в StatusNew: деньги ещё не захолдированы, операцию
 // доводит confirm после проверки. Иначе confirm упирался бы в переход Authorized→Authorized.
 func (s *Service) EpayAuthorize(in EpayAuthorizeInput) (*pay.Record, error) {
-	if in.Amount <= 0 {
+	// Привязка карты идёт нулевой суммой: карта только проверяется, средства не списываются.
+	bindOnly := in.CardSave || in.PaymentType == "cardVerification"
+	if in.Amount < 0 || (in.Amount == 0 && !bindOnly) {
 		return nil, errors.New("amount must be positive")
 	}
+
 	kind := pay.KindEpayPay
 	if in.HasCryptogram {
-		if in.PaymentType == "applePay" {
+		switch {
+		case in.PaymentType == "applePay":
 			kind = pay.KindEpayApplePay
-		} else if in.PaymentType == "googlePay" {
+		case in.PaymentType == "googlePay":
 			kind = pay.KindEpayGooglePay
-		} else if in.CardSave {
+		case bindOnly:
 			kind = pay.KindEpayBind
-		} else {
+		default:
 			kind = pay.KindEpayCard
 		}
 	}

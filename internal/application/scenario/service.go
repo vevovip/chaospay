@@ -530,10 +530,17 @@ Content-Type: application/json
 	},
 	{
 		Name: "epay_declined_by_issuer", Bank: bank.Epay, Title: "🚫 Epay: Declined by issuer",
-		Description: "Halyk reasonCode=455 → PG ErrDeclinedByIssuer",
-		Sample: `{"code":455,"message":"Declined by issuer","resultCode":455}
+		Description: "Halyk reasonCode=462 → PG declined_by_issuer",
+		Sample: `{"code":462,"message":"Declined by issuer","resultCode":462}
 
-# Альтернативы: 456, 462, 463, 466, 468, 487, 490, 521, 523, 527.`,
+# Альтернативы: 463, 466, 468, 487, 490, 521, 523, 527.`,
+	},
+	{
+		Name: "epay_secure3d_failed", Bank: bank.Epay, Title: "🔐 Epay: 3DS не пройден",
+		Description: "Halyk reasonCode=455 → PG secure3d_failed",
+		Sample: `{"code":455,"message":"3D Secure verification failed","resultCode":455}
+
+# Альтернативы: 473, 499, 500, 503, 877.`,
 	},
 	{
 		Name: "epay_limit_exceeded", Bank: bank.Epay, Title: "📈 Epay: Limit exceeded",
@@ -1001,7 +1008,9 @@ func (s *Service) ApplyPreset(name string) { //nolint:gocyclo,funlen
 	case "epay_invalid_card":
 		addEpayDecline("457", "Invalid card data")
 	case "epay_declined_by_issuer":
-		addEpayDecline("455", "Declined by issuer")
+		addEpayDecline("462", "Declined by issuer")
+	case "epay_secure3d_failed":
+		addEpayDecline("455", "3D Secure verification failed")
 	case "epay_limit_exceeded":
 		addEpayDecline("486", "Card limitations exceeded")
 	case "epay_unknown_error":

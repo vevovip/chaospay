@@ -6,7 +6,8 @@ func TestClassify_KnownCodes(t *testing.T) {
 	cases := map[int]ErrorClass{
 		484: ErrNotEnoughMoney,
 		457: ErrCardDataInput,
-		455: ErrDeclinedByIssuer,
+		455: ErrSecure3DFailed,
+		462: ErrDeclinedByIssuer,
 		478: ErrCardExpired,
 		486: ErrCardLimitationsExceeded,
 		470: ErrTransactionAmountIsZero,

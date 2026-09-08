@@ -8,6 +8,7 @@ import (
 	"time"
 
 	apppay "github.com/vevovip/chaospay/internal/application/pay"
+	domainbank "github.com/vevovip/chaospay/internal/domain/bank"
 	"github.com/vevovip/chaospay/internal/domain/pay"
 	"github.com/vevovip/chaospay/internal/domain/requestlog"
 	"github.com/vevovip/chaospay/internal/domain/scenario"
@@ -48,9 +49,14 @@ func (c *Controller) handleCryptopay(r *http.Request, body []byte, sc *scenario.
 	// Если это bind-flow (cardSave=true) — Halyk отправляет НЕ обычный postlink,
 	// а отдельный bind-postlink на postLinkBind URL. Симулируем это поведение,
 	// иначе PG не зафиксирует привязку карты и end-to-end тест не пройдёт.
+	// Привязка карты закрывается отдельным bind-постлинком, оплата — обычным:
+	// без постлинка оплата на платёжной странице осталась бы для PG незавершённой.
 	if updated.Kind == pay.KindEpayBind {
 		c.scheduleBindPostlink(sc, updated, true)
+	} else if updated.Status == pay.StatusAuthorized {
+		c.scheduleSuccessPostlink(sc, updated)
 	}
+
 	return http.StatusOK, buildAuthorizeResponse(updated, sc, c.cfg.ACSURL), nil
 }
 
@@ -148,6 +154,11 @@ func (c *Controller) handleCardAuth(r *http.Request, body []byte, sc *scenario.S
 		return 0, nil, err
 	}
 	entry.PaymentID = strconv.FormatUint(uint64(updated.PaymentID), 10)
+
+	if updated.Status == pay.StatusAuthorized {
+		c.scheduleSuccessPostlink(sc, updated)
+	}
+
 	return http.StatusOK, buildAuthorizeResponse(updated, sc, c.cfg.ACSURL), nil
 }
 
@@ -203,7 +214,13 @@ func (c *Controller) handleStatus(r *http.Request, _ []byte, _ *scenario.Scenari
 	if err != nil {
 		return 0, nil, err
 	}
-	return http.StatusOK, infraepay.StatusResponse{
+
+	return http.StatusOK, statusResponseOf(rec), nil
+}
+
+// statusResponseOf собирает ответ о состоянии операции.
+func statusResponseOf(rec *pay.Record) infraepay.StatusResponse {
+	return infraepay.StatusResponse{
 		ID:           rec.EpayID,
 		InvoiceID:    rec.EpayInvoiceID,
 		Amount:       int(rec.Amount), //nolint:gosec
@@ -214,7 +231,43 @@ func (c *Controller) handleStatus(r *http.Request, _ []byte, _ *scenario.Scenari
 		IntReference: strconv.FormatUint(uint64(rec.PaymentID), 10),
 		DateTime:     rec.CreatedAt.Format(time.RFC3339),
 		CardMask:     rec.CardPAN,
-	}, nil
+	}
+}
+
+// handleStatusByInvoice — GET /check-status/payment/transaction/{invoiceId}.
+//
+// Halyk отдаёт состояние операции и по инвойсу: так его спрашивают об оплате, начатой
+// на платёжной странице, идентификатор которой мерчанту ещё не приходил.
+func (c *Controller) handleStatusByInvoice(r *http.Request, _ []byte, _ *scenario.Scenario, entry *requestlog.Entry) (int, any, error) {
+	invoiceID := r.PathValue("invoiceID")
+	entry.OrderID = invoiceID
+
+	rec, ok := c.paymentByInvoice(invoiceID)
+	if !ok {
+		return 0, nil, errors.New("operation not found")
+	}
+
+	entry.PaymentID = strconv.FormatUint(uint64(rec.PaymentID), 10)
+
+	return http.StatusOK, statusResponseOf(rec), nil
+}
+
+// paymentByInvoice ищет операцию по инвойсу. Записей с одним инвойсом может быть
+// несколько (повторные попытки оплаты), поэтому берём последнюю.
+func (c *Controller) paymentByInvoice(invoiceID string) (*pay.Record, bool) {
+	var found *pay.Record
+
+	for _, rec := range c.svc.Repo().List() {
+		if rec.Bank != domainbank.Epay || rec.EpayInvoiceID != invoiceID {
+			continue
+		}
+
+		if found == nil || rec.PaymentID > found.PaymentID {
+			found = rec
+		}
+	}
+
+	return found, found != nil
 }
 
 // handleRefund — POST /api/operation/{id}/refund?amount=…

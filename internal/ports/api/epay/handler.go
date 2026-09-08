@@ -140,8 +140,21 @@ func (c *Controller) Register(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/check-status/payment/transactionId/{operationID}",
 		c.jsonEndpoint(scenario.EndpointEpayStatus, c.handleStatus))
 
+	// Состояние по инвойсу: этим путём PG спрашивает об оплате, начатой на платёжной
+	// странице, когда идентификатор операции ему ещё не известен.
+	mux.HandleFunc("GET /epay/check-status/payment/transaction/{invoiceID}",
+		c.jsonEndpoint(scenario.EndpointEpayStatus, c.handleStatusByInvoice))
+	mux.HandleFunc("GET /check-status/payment/transaction/{invoiceID}",
+		c.jsonEndpoint(scenario.EndpointEpayStatus, c.handleStatusByInvoice))
+	mux.HandleFunc("GET /api/check-status/payment/transaction/{invoiceID}",
+		c.jsonEndpoint(scenario.EndpointEpayStatus, c.handleStatusByInvoice))
+
 	// Страница проверки 3DS: замыкает цикл в локальном прогоне вместо ACS эмитента.
 	mux.HandleFunc("POST /epay/3ds/acs", c.handleACS)
+
+	// Скрипт виджета платёжной страницы: его подключает страница шлюза.
+	mux.HandleFunc("GET /payform/payment-api.js", c.handlePaymentAPI)
+	mux.HandleFunc("GET /epay/payform/payment-api.js", c.handlePaymentAPI)
 }
 
 // jsonHandler — обработчик, возвращает (статус-код, ответ, ошибка).

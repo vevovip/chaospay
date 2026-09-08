@@ -314,7 +314,8 @@ func TestPGCompat_BusinessDeclines_400Response(t *testing.T) {
 		{"epay_insufficient_funds", 484},
 		{"epay_card_expired", 478},
 		{"epay_invalid_card", 457},
-		{"epay_declined_by_issuer", 455},
+		{"epay_declined_by_issuer", 462},
+		{"epay_secure3d_failed", 455},
 		{"epay_limit_exceeded", 486},
 	}
 	for _, tc := range cases {

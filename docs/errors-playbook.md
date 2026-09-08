@@ -298,10 +298,26 @@ curl -X POST http://localhost:48532/panel/scenarios/add \
 | Пресет | Что имитирует | Ожидаемое поведение PG |
 |---|---|---|
 | `epay_3ds_required` | `cryptopay` возвращает `secure3D` | заказ в `action_required`, пользователь уходит на страницу 3DS |
+| `epay_secure3d_failed` | отказ с кодом 455 | заказ в неуспешные с кодом `secure3d_failed` |
 | `epay_3ds_confirm_declined` | `confirm` отвечает отказом | заказ в неуспешные, состояние операции `FAILED` |
 | `epay_3ds_confirm_timeout` | `confirm` не отвечает | итог берётся из состояния операции, заказ не остаётся подвешенным |
 
 Подтверждение приходит на `POST /api/payment/confirm` с полями `ID`, `PaRes`, `MD`. Real Halyk отвечает на него редиректом, поэтому мок отдаёт 200 и переводит операцию, а исход платежа PG уточняет запросом состояния операции.
+
+Цикл замыкается локально: мок отдаёт страницу проверки `POST /epay/3ds/acs`, которая сабмитит браузер обратно на `TermUrl` PG. Отказ на проверке — `?outcome=declined` либо пресет `epay_3ds_confirm_declined`.
+
+## Платёжная страница Halyk
+
+`GET /payform/payment-api.js` отдаёт заглушку виджета: она определяет `halyk.showPaymentWidget`, рисует форму карты и отправляет `POST /api/payment/cryptopay` с токеном из `paymentObject.auth`. Так проходят оплата новой картой и привязка карты (`paymentType=cardVerification`, `cardSave=true`, нулевая сумма) — без неё эти сценарии локально не пройти.
+
+## Состояние операции
+
+| Запрос | Когда его шлёт PG |
+|---|---|
+| `GET /check-status/payment/transactionId/{id}` | идентификатор операции известен |
+| `GET /check-status/payment/transaction/{invoiceId}` | оплата начата на платёжной странице, идентификатора ещё нет |
+
+Второй путь нужен для восстановления платежа при потерянном постлинке (`epay_postlink_lost`).
 
 ---
 
