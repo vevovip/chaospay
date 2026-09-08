@@ -1030,7 +1030,7 @@ func main() {
 		{"epay_insufficient_funds", `"code":484`},
 		{"epay_card_expired", `"code":478`},
 		{"epay_invalid_card", `"code":457`},
-		{"epay_declined_by_issuer", `"code":455`},
+		{"epay_declined_by_issuer", `"code":462`},
 		{"epay_limit_exceeded", `"code":486`},
 		{"epay_unknown_error", `"code":477`},
 	} {
