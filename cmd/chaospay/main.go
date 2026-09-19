@@ -112,9 +112,33 @@ func main() {
 	logRoutes(cfg)
 
 	log.Printf("[mock] listening on %s", cfg.ListenAddr)
-	if err := http.ListenAndServe(cfg.ListenAddr, mux); err != nil { //nolint:gosec
+	if err := http.ListenAndServe(cfg.ListenAddr, withCORS(mux)); err != nil { //nolint:gosec
 		log.Fatal(err)
 	}
+}
+
+// withCORS пускает запросы со страницы мерчанта: платёжную форму подключает чужой домен,
+// и без этих заголовков браузер режет вызов банка ещё до отправки.
+func withCORS(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		origin := r.Header.Get("Origin")
+		if origin == "" {
+			origin = "*"
+		}
+
+		w.Header().Set("Access-Control-Allow-Origin", origin)
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+		w.Header().Set("Vary", "Origin")
+
+		if r.Method == http.MethodOptions {
+			w.WriteHeader(http.StatusNoContent)
+
+			return
+		}
+
+		next.ServeHTTP(w, r)
+	})
 }
 
 func logRoutes(cfg config.Config) {

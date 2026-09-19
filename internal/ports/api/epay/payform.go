@@ -11,7 +11,16 @@ import (
 // halyk.showPaymentWidget, рисует форму и отправляет cryptopay с переданным токеном —
 // без этого оплату новой картой и привязку карты нельзя пройти локально.
 const paymentAPIScript = `(function () {
-  var BASE_URL = window.location.origin;
+  // Форму подключает страница мерчанта, поэтому адрес банка берём у самого скрипта:
+  // origin страницы указывает на мерчанта, и запрос уходил бы не в банк.
+  var BASE_URL = (function () {
+    var src = (document.currentScript && document.currentScript.src) || '';
+    try {
+      return src ? new URL(src).origin : window.location.origin;
+    } catch (e) {
+      return window.location.origin;
+    }
+  })();
 
   function form(payment, onResult) {
     var box = document.createElement('div');
@@ -19,11 +28,20 @@ const paymentAPIScript = `(function () {
     box.innerHTML =
       '<h3 style="margin:0 0 4px">ChaosPay: форма оплаты Halyk</h3>' +
       '<p style="margin:0 0 16px;color:#5c6367;font-size:13px">invoice ' + payment.invoiceId +
-      ' · ' + (payment.amount / 100).toFixed(2) + ' ' + (payment.currency || 'KZT') + '</p>' +
-      '<input id="cp-pan" value="4405639704015096" style="width:100%;padding:10px;margin-bottom:8px;border:1px solid #d5d9dc;border-radius:8px">' +
-      '<input id="cp-exp" value="12/26" style="width:48%;padding:10px;border:1px solid #d5d9dc;border-radius:8px">' +
-      '<input id="cp-cvc" value="123" style="width:48%;padding:10px;float:right;border:1px solid #d5d9dc;border-radius:8px">' +
-      '<button id="cp-pay" style="width:100%;margin-top:16px;padding:12px;border:0;border-radius:8px;background:#c83f72;color:#fff;font-size:15px">Оплатить</button>' +
+      ' · ' + payment.amount + ' ' + (payment.currency || 'KZT') + '</p>' +
+      '<label style="display:block;font-size:12px;color:#5c6367;margin-bottom:6px">Номер карты</label>' +
+      '<input id="cp-pan" value="4405639704015096" inputmode="numeric" style="box-sizing:border-box;width:100%;padding:12px;margin-bottom:12px;border:1px solid #d5d9dc;border-radius:8px;font-size:15px">' +
+      '<div style="display:flex;gap:12px">' +
+      '<div style="flex:1">' +
+      '<label style="display:block;font-size:12px;color:#5c6367;margin-bottom:6px">Срок действия</label>' +
+      '<input id="cp-exp" value="12/26" inputmode="numeric" style="box-sizing:border-box;width:100%;padding:12px;border:1px solid #d5d9dc;border-radius:8px;font-size:15px">' +
+      '</div>' +
+      '<div style="flex:1">' +
+      '<label style="display:block;font-size:12px;color:#5c6367;margin-bottom:6px">CVC</label>' +
+      '<input id="cp-cvc" value="123" inputmode="numeric" style="box-sizing:border-box;width:100%;padding:12px;border:1px solid #d5d9dc;border-radius:8px;font-size:15px">' +
+      '</div>' +
+      '</div>' +
+      '<button id="cp-pay" style="box-sizing:border-box;width:100%;margin-top:16px;padding:14px;border:0;border-radius:8px;background:#c83f72;color:#fff;font-size:15px;font-weight:600">Оплатить</button>' +
       '<div id="cp-status" style="margin-top:12px;font-size:13px;color:#5c6367"></div>';
     document.body.appendChild(box);
 
