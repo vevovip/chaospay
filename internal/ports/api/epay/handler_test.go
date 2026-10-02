@@ -2,6 +2,7 @@ package epay_test
 
 import (
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -236,5 +237,38 @@ func TestEpay_CryptopayGooglePayEmptyToken(t *testing.T) {
 	}
 	if records[0].Kind == pay.KindEpayGooglePay {
 		t.Error("без токена платёж кошелька заводиться не должен")
+	}
+}
+
+func TestEpay_PaymentWidgetReportsSuccessFlag(t *testing.T) {
+	srv, _ := newTestServer(t)
+
+	resp, err := http.Get(srv.URL + "/payform/payment-api.js")
+	if err != nil {
+		t.Fatalf("get widget: %v", err)
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatalf("read widget: %v", err)
+	}
+
+	script := string(body)
+
+	for _, want := range []string{
+		"outcome.success = true",
+		"if (isDecline(res)) { outcome.success = false; }",
+		"res.status !== 401 && res.status !== 403",
+		"!!res.data.code",
+		"onResult({})",
+	} {
+		if !strings.Contains(script, want) {
+			t.Errorf("widget script lacks %q", want)
+		}
+	}
+
+	if strings.Contains(script, "outcome.success = res.ok") {
+		t.Error("widget must not report success:false for technical failures")
 	}
 }

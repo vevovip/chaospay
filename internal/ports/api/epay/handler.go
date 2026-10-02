@@ -157,6 +157,15 @@ func (c *Controller) Register(mux *http.ServeMux) {
 	mux.HandleFunc("GET /epay/payform/payment-api.js", c.handlePaymentAPI)
 }
 
+func handlesDecline(endpoint string) bool {
+	switch endpoint {
+	case scenario.EndpointEpayConfirm, scenario.EndpointEpayCryptopay, scenario.EndpointEpayCardAuth:
+		return true
+	}
+
+	return false
+}
+
 // jsonHandler — обработчик, возвращает (статус-код, ответ, ошибка).
 // Если ошибка != nil, она транслируется в 400 + {message}.
 type jsonHandler func(r *http.Request, body []byte, sc *scenario.Scenario, entry *requestlog.Entry) (int, any, error)
@@ -220,9 +229,8 @@ func (c *Controller) jsonEndpoint(endpoint string, fn jsonHandler) http.HandlerF
 			if scenarioapply.Transport(w, sc, entry, started, c.log) {
 				return
 			}
-			// confirm обрабатывает отказ сам: перед ответом операция должна перейти
-			// в FAILED, иначе check-status отдаст NEW и PG не сможет закрыть заказ.
-			if endpoint != scenario.EndpointEpayConfirm || sc.Action != scenario.ActionForceFailure {
+			// отказ должен лечь в FAILED до ответа, иначе check-status его не покажет
+			if !handlesDecline(endpoint) || sc.Action != scenario.ActionForceFailure {
 				if applied := c.applyScenarioBefore(w, sc, entry, started); applied {
 					return
 				}

@@ -35,6 +35,25 @@ type EpayAuthorizeInput struct {
 // При Requires3DS запись остаётся в StatusNew: деньги ещё не захолдированы, операцию
 // доводит confirm после проверки. Иначе confirm упирался бы в переход Authorized→Authorized.
 func (s *Service) EpayAuthorize(in EpayAuthorizeInput) (*pay.Record, error) {
+	rec, err := s.newEpayRecord(in)
+	if err != nil {
+		return nil, err
+	}
+
+	if in.Requires3DS {
+		return rec, nil
+	}
+
+	// Halyk возвращает успешный AuthorizeResponse сразу — это эквивалент Freedom-Hold.
+	// Переводим в Authorized, чтобы потом можно было сделать Charge/Cancel/Refund.
+	updated, err := s.repo.Transition(rec.PaymentID, pay.AllowedTransitions(pay.StatusAuthorized), pay.StatusAuthorized, "epay authorize")
+	if err != nil {
+		return nil, fmt.Errorf("authorize transition: %w", err)
+	}
+	return updated, nil
+}
+
+func (s *Service) newEpayRecord(in EpayAuthorizeInput) (*pay.Record, error) {
 	// Привязка карты идёт нулевой суммой: карта только проверяется, средства не списываются.
 	bindOnly := in.CardSave || in.PaymentType == "cardVerification"
 	if in.Amount < 0 || (in.Amount == 0 && !bindOnly) {
@@ -94,16 +113,25 @@ func (s *Service) EpayAuthorize(in EpayAuthorizeInput) (*pay.Record, error) {
 	rec.EpayID = fmt.Sprintf("mock-epay-%d", rec.PaymentID)
 	s.repo.Create(rec)
 
-	if in.Requires3DS {
-		return rec, nil
+	return rec, nil
+}
+
+func (s *Service) EpayDecline(in EpayAuthorizeInput, code int, reason string) (*pay.Record, error) {
+	rec, err := s.newEpayRecord(in)
+	if err != nil {
+		return nil, err
 	}
 
-	// Halyk возвращает успешный AuthorizeResponse сразу — это эквивалент Freedom-Hold.
-	// Переводим в Authorized, чтобы потом можно было сделать Charge/Cancel/Refund.
-	updated, err := s.repo.Transition(rec.PaymentID, pay.AllowedTransitions(pay.StatusAuthorized), pay.StatusAuthorized, "epay authorize")
+	updated, err := s.repo.Update(rec.PaymentID, func(r *pay.Record) (pay.Status, string, error) {
+		r.EpayDeclineCode = code
+		r.EpayDeclineReason = reason
+
+		return pay.StatusFailed, "epay decline", nil
+	})
 	if err != nil {
-		return nil, fmt.Errorf("authorize transition: %w", err)
+		return nil, fmt.Errorf("decline transition: %w", err)
 	}
+
 	return updated, nil
 }
 

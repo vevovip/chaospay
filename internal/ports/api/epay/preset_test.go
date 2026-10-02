@@ -317,3 +317,121 @@ func TestPreset_OAuthTimeout_AffectsOnlyTokenEndpoint(t *testing.T) {
 		t.Errorf("cryptopay status = %d, want 200 (preset не должен затрагивать)", resp.StatusCode)
 	}
 }
+
+func TestPreset_DeclineVisibleInStatusByInvoice(t *testing.T) {
+	cases := []struct {
+		name       string
+		preset     string
+		path       string
+		body       string
+		wantStatus int
+		wantFound  bool
+		wantCode   int
+		wantReason string
+	}{
+		{
+			name:       "новая карта: нехватка средств",
+			preset:     "epay_insufficient_funds",
+			path:       "/api/payment/cryptopay",
+			body:       `{"amount":1000,"invoiceId":"000901","currency":"KZT","cryptogram":"x"}`,
+			wantStatus: http.StatusBadRequest,
+			wantFound:  true,
+			wantCode:   484,
+			wantReason: "Insufficient funds",
+		},
+		{
+			name:       "сохранённая карта: истёк срок",
+			preset:     "epay_card_expired",
+			path:       "/api/payments/cards/auth",
+			body:       `{"amount":1000,"invoiceId":"000902","currency":"KZT","cardId":{"id":"card-1"},"accountId":"42"}`,
+			wantStatus: http.StatusBadRequest,
+			wantFound:  true,
+			wantCode:   478,
+			wantReason: "Card expired",
+		},
+		{
+			name:       "сохранённая карта без cardId: сценарий отказа важнее проверки запроса",
+			preset:     "epay_insufficient_funds",
+			path:       "/api/payments/cards/auth",
+			body:       `{"amount":1000,"invoiceId":"000904","currency":"KZT","accountId":"42"}`,
+			wantStatus: http.StatusBadRequest,
+			wantFound:  true,
+			wantCode:   484,
+			wantReason: "Insufficient funds",
+		},
+		{
+			name:       "привязка карты: отказ",
+			preset:     "epay_bind_failure",
+			path:       "/api/payment/cryptopay",
+			body:       `{"amount":0,"invoiceId":"000903","currency":"KZT","cryptogram":"x","cardSave":true}`,
+			wantStatus: http.StatusBadRequest,
+			wantFound:  true,
+			wantCode:   457,
+			wantReason: "Card binding failed",
+		},
+		{
+			name:       "500 банка",
+			preset:     "epay_cryptopay_500",
+			path:       "/api/payment/cryptopay",
+			body:       `{"amount":1000,"invoiceId":"000904","currency":"KZT","cryptogram":"x"}`,
+			wantStatus: http.StatusInternalServerError,
+		},
+		{
+			name:       "401 банка",
+			preset:     "epay_unauthorized_401",
+			path:       "/api/payment/cryptopay",
+			body:       `{"amount":1000,"invoiceId":"000905","currency":"KZT","cryptogram":"x"}`,
+			wantStatus: http.StatusUnauthorized,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			st := newTestStand(t)
+			defer st.Server.Close()
+			st.Scenarios.ApplyPreset(tc.preset)
+
+			resp := mustPost(t, st.Server.URL+tc.path, "application/json", tc.body)
+			_ = resp.Body.Close()
+			if resp.StatusCode != tc.wantStatus {
+				t.Fatalf("operation status = %d, want %d", resp.StatusCode, tc.wantStatus)
+			}
+
+			st.Scenarios.Reset()
+
+			var invoice struct {
+				InvoiceID string `json:"invoiceId"`
+			}
+			_ = json.Unmarshal([]byte(tc.body), &invoice)
+
+			statusResp := mustGet(t, st.Server.URL+"/check-status/payment/transaction/"+invoice.InvoiceID)
+			defer statusResp.Body.Close()
+
+			if !tc.wantFound {
+				if statusResp.StatusCode == http.StatusOK {
+					t.Fatalf("технический сбой не должен заводить операцию")
+				}
+
+				return
+			}
+
+			if statusResp.StatusCode != http.StatusOK {
+				raw, _ := io.ReadAll(statusResp.Body)
+				t.Fatalf("check-status = %d %s, want 200", statusResp.StatusCode, raw)
+			}
+
+			var status infraepay.StatusResponse
+			if err := json.NewDecoder(statusResp.Body).Decode(&status); err != nil {
+				t.Fatal(err)
+			}
+
+			if status.Status != "FAILED" || status.ReasonCode != tc.wantCode || status.Reason != tc.wantReason {
+				t.Fatalf("status = %s/%d/%q, want FAILED/%d/%q", status.Status, status.ReasonCode, status.Reason, tc.wantCode, tc.wantReason)
+			}
+
+			if status.InvoiceID != invoice.InvoiceID {
+				t.Fatalf("invoiceId = %q, want %q", status.InvoiceID, invoice.InvoiceID)
+			}
+		})
+	}
+}

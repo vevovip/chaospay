@@ -22,6 +22,20 @@ const paymentAPIScript = `(function () {
     }
   })();
 
+  // 401/403 — сбой доступа мерчанта, а не отказ банка
+  function isDecline(res) {
+    return res.status >= 400 && res.status < 500 && res.status !== 401 && res.status !== 403 && !!res.data.code;
+  }
+
+  // при технической ошибке исход неизвестен, success не ставим
+  function outcomeOf(res) {
+    var outcome = Object.assign({}, res.data);
+    if (res.ok && res.data.secure3D && res.data.secure3D.action) { return outcome; }
+    if (res.ok) { outcome.success = true; return outcome; }
+    if (isDecline(res)) { outcome.success = false; }
+    return outcome;
+  }
+
   function form(payment, onResult) {
     var box = document.createElement('div');
     box.setAttribute('style', 'max-width:420px;margin:24px auto;padding:20px;border:1px solid #e3e6e8;border-radius:12px;font-family:-apple-system,Segoe UI,Roboto,sans-serif');
@@ -76,15 +90,25 @@ const paymentAPIScript = `(function () {
           'Authorization': (payment.auth.token_type || 'Bearer') + ' ' + payment.auth.access_token
         },
         body: JSON.stringify(body)
-      }).then(function (r) { return r.json().then(function (data) { return { ok: r.ok, data: data }; }); })
+      }).then(function (r) {
+        return r.text().then(function (text) {
+          var data = {};
+          try { data = JSON.parse(text) || {}; } catch (e) { data = {}; }
+          return { ok: r.ok, status: r.status, data: data };
+        });
+      })
         .then(function (res) {
-          status.textContent = res.ok ? 'Банк принял платёж' : ('Отказ банка: ' + (res.data.message || ''));
-          if (res.ok && res.data.secure3D && res.data.secure3D.action) {
-            status.textContent = 'Требуется подтверждение 3DS';
+          if (res.ok) {
+            status.textContent = res.data.secure3D && res.data.secure3D.action ? 'Требуется подтверждение 3DS' : 'Банк принял платёж';
+          } else {
+            status.textContent = isDecline(res) ? ('Отказ банка: ' + (res.data.message || '')) : 'Сбой банка, исход уточняется';
           }
-          if (typeof onResult === 'function') { onResult(res.data); }
+          if (typeof onResult === 'function') { onResult(outcomeOf(res)); }
         })
-        .catch(function (err) { status.textContent = 'Ошибка сети: ' + err; });
+        .catch(function (err) {
+          status.textContent = 'Ошибка сети: ' + err;
+          if (typeof onResult === 'function') { onResult({}); }
+        });
     };
   }
 

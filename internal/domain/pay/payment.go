@@ -117,6 +117,8 @@ type Record struct {
 	EpayCallbackURL        string // postlink — успех
 	EpayFailureCallbackURL string // failurePostlink — ошибка
 	EpayPaymentType        string // "cardId" / "applePay" — из cryptopay/auth запроса
+	EpayDeclineCode        int
+	EpayDeclineReason      string
 
 	// Flitt specific. Для прочих банков — пусты.
 	FlittPaymentID    int64  // payment_id Flitt (числовой, в формате 1.7e9)

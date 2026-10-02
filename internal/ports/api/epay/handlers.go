@@ -23,7 +23,7 @@ func (c *Controller) handleCryptopay(r *http.Request, body []byte, sc *scenario.
 	}
 	entry.OrderID = req.InvoiceID
 
-	updated, err := c.svc.EpayAuthorize(apppay.EpayAuthorizeInput{
+	input := apppay.EpayAuthorizeInput{
 		OrderID:         infraepay.ParseInvoice(req.InvoiceID),
 		Amount:          req.Amount,
 		Currency:        req.Currency,
@@ -40,7 +40,13 @@ func (c *Controller) handleCryptopay(r *http.Request, body []byte, sc *scenario.
 		CardSave:        req.CardSave,
 		HasCryptogram:   req.Cryptogram != "" || req.CryptogramApplePay != "" || req.GooglePay.HasToken(),
 		Requires3DS:     sc != nil && sc.Action == scenario.ActionForce3DS,
-	})
+	}
+
+	if isDecline(sc) {
+		return c.decline(sc, input, entry)
+	}
+
+	updated, err := c.svc.EpayAuthorize(input)
 	if err != nil {
 		return 0, nil, err
 	}
@@ -58,6 +64,23 @@ func (c *Controller) handleCryptopay(r *http.Request, body []byte, sc *scenario.
 	}
 
 	return http.StatusOK, buildAuthorizeResponse(updated, sc, c.cfg.ACSURL), nil
+}
+
+func isDecline(sc *scenario.Scenario) bool {
+	return sc != nil && sc.Action == scenario.ActionForceFailure
+}
+
+func (c *Controller) decline(sc *scenario.Scenario, in apppay.EpayAuthorizeInput, entry *requestlog.Entry) (int, any, error) {
+	code := scenario.ParamInt(sc, "reason_code", 477)
+	msg := scenario.Param(sc, "message", infraepay.DefaultMessage(code))
+
+	rec, err := c.svc.EpayDecline(in, code, msg)
+	if err != nil {
+		return 0, nil, err
+	}
+	entry.PaymentID = strconv.FormatUint(uint64(rec.PaymentID), 10)
+
+	return http.StatusBadRequest, infraepay.ErrorResponse{Code: code, Message: msg, ResultCode: code}, nil
 }
 
 // handleConfirm — POST /api/payment/confirm: PG прислал результат проверки 3DS.
@@ -132,24 +155,30 @@ func (c *Controller) handleCardAuth(r *http.Request, body []byte, sc *scenario.S
 	}
 	entry.OrderID = req.InvoiceID
 
-	if req.CardID == nil || req.CardID.ID == "" {
-		return 0, nil, errors.New("cardId is required for card auth")
-	}
-
-	updated, err := c.svc.EpayAuthorize(apppay.EpayAuthorizeInput{
+	input := apppay.EpayAuthorizeInput{
 		OrderID:         infraepay.ParseInvoice(req.InvoiceID),
 		Amount:          req.Amount,
 		Currency:        req.Currency,
 		InvoiceID:       req.InvoiceID,
 		TerminalID:      defaultStr(req.TerminalID, c.cfg.TerminalUUID),
 		AccountID:       req.AccountID,
-		CardID:          req.CardID.ID,
+		CardID:          cardIDValue(req.CardID),
 		PaymentType:     defaultStr(req.PaymentType, "cardId"),
 		Description:     req.Description,
 		Postlink:        req.Postlink,
 		FailurePostlink: req.FailurePostlink,
 		HasCryptogram:   false,
-	})
+	}
+
+	if isDecline(sc) {
+		return c.decline(sc, input, entry)
+	}
+
+	if req.CardID == nil || req.CardID.ID == "" {
+		return 0, nil, errors.New("cardId is required for card auth")
+	}
+
+	updated, err := c.svc.EpayAuthorize(input)
 	if err != nil {
 		return 0, nil, err
 	}
@@ -231,6 +260,8 @@ func statusResponseOf(rec *pay.Record) infraepay.StatusResponse {
 		IntReference: strconv.FormatUint(uint64(rec.PaymentID), 10),
 		DateTime:     rec.CreatedAt.Format(time.RFC3339),
 		CardMask:     rec.CardPAN,
+		Reason:       rec.EpayDeclineReason,
+		ReasonCode:   rec.EpayDeclineCode,
 	}
 }
 
