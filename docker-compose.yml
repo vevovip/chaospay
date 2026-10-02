@@ -1,9 +1,9 @@
 services:
   chaospay:
     build: .
-    container_name: chaospay
+    container_name: ${CHAOSPAY_CONTAINER_NAME:-chaospay}
     ports:
-      - "48532:8532"
+      - "${CHAOSPAY_PORT:-48532}:8532"
     environment:
       # Глобальная задержка ответов (в секундах) для имитации тормозов банка.
       - CHAOSPAY_DELAY_SECONDS=${CHAOSPAY_DELAY_SECONDS:-0}
