@@ -366,3 +366,75 @@ func TestPresetsFor_FiltersByBank(t *testing.T) {
 		t.Errorf("PresetsFor(Any) = %d, want >= freedom+epay = %d", len(any), len(freedom)+len(epay))
 	}
 }
+
+func TestApplyPresetWithParams_LateOperation(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name             string
+		preset           string
+		overrides        map[string]string
+		wantStatus       string
+		wantVisibleAfter string
+	}{
+		{"холд по умолчанию", "epay_late_auth_postlink_lost", nil, "AUTH", "0"},
+		{"списание с задержкой", "epay_late_charge_postlink_lost", map[string]string{"visible_after": "600"}, "CHARGE", "600"},
+		{"пустое значение не затирает дефолт", "epay_late_auth_postlink_lost", map[string]string{"visible_after": ""}, "AUTH", "0"},
+		{"чужой параметр игнорируется", "epay_late_auth_postlink_lost", map[string]string{"status": "CHARGE", "visible_after": "5"}, "AUTH", "5"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			store := &fakeStore{}
+			if err := NewService(store).ApplyPresetWithParams(tt.preset, tt.overrides); err != nil {
+				t.Fatalf("ApplyPresetWithParams: %v", err)
+			}
+
+			if len(store.items) != 1 {
+				t.Fatalf("want 1 scenario, got %d", len(store.items))
+			}
+
+			sc := store.items[0]
+			if sc.Endpoint != dscenario.EndpointEpayCryptopay || sc.Action != dscenario.ActionEpayLateOperation || !sc.ConsumeOnce {
+				t.Fatalf("unexpected scenario: %+v", sc)
+			}
+			if sc.Params["status"] != tt.wantStatus || sc.Params["visible_after"] != tt.wantVisibleAfter || sc.Params["http_status"] != "500" {
+				t.Fatalf("params = %v, want status=%s visible_after=%s http_status=500", sc.Params, tt.wantStatus, tt.wantVisibleAfter)
+			}
+		})
+	}
+}
+
+func TestApplyPresetWithParams_IgnoresUndeclared(t *testing.T) {
+	t.Parallel()
+
+	store := &fakeStore{}
+	if err := NewService(store).ApplyPresetWithParams("epay_cryptopay_500", map[string]string{"visible_after": "600"}); err != nil {
+		t.Fatalf("ApplyPresetWithParams: %v", err)
+	}
+
+	if _, ok := store.items[0].Params["visible_after"]; ok {
+		t.Fatalf("preset без объявленных параметров не должен принимать overrides: %v", store.items[0].Params)
+	}
+}
+
+func TestApplyPresetWithParams_InvalidVisibleAfter(t *testing.T) {
+	t.Parallel()
+
+	for _, value := range []string{"abc", "-5", "1.5"} {
+		t.Run(value, func(t *testing.T) {
+			t.Parallel()
+
+			store := &fakeStore{}
+			err := NewService(store).ApplyPresetWithParams("epay_late_auth_postlink_lost", map[string]string{"visible_after": value})
+			if err == nil {
+				t.Fatalf("visible_after=%q принят, want error", value)
+			}
+			if len(store.items) != 0 {
+				t.Fatalf("при ошибке сценарии не добавляются, got %d", len(store.items))
+			}
+		})
+	}
+}

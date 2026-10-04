@@ -3,6 +3,7 @@ package pay
 import (
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/vevovip/chaospay/internal/domain/bank"
 	"github.com/vevovip/chaospay/internal/domain/pay"
@@ -53,7 +54,75 @@ func (s *Service) EpayAuthorize(in EpayAuthorizeInput) (*pay.Record, error) {
 	return updated, nil
 }
 
+// EpayLateOperation заводит операцию, которую банк провёл, но ещё не показывает в check-status.
+// captured=true — операция сразу списана (CHARGE), иначе остаётся холдом (AUTH).
+// Нулевой visibleAt — операция видна сразу.
+func (s *Service) EpayLateOperation(in EpayAuthorizeInput, captured bool, visibleAt time.Time) (*pay.Record, error) {
+	rec, err := s.buildEpayRecord(in)
+	if err != nil {
+		return nil, err
+	}
+
+	now := time.Now()
+	rec.EpayVisibleAt = visibleAt
+	rec.Status = pay.StatusAuthorized
+	rec.AuthorizedAt = now
+
+	if captured {
+		rec.Status = pay.StatusCaptured
+		rec.CapturedAt = now
+		rec.Captured = rec.Amount
+	}
+
+	s.repo.Create(rec)
+
+	return s.repo.Get(rec.PaymentID)
+}
+
+// EpayRevealInvoice делает видимыми в check-status все скрытые операции инвойса.
+// Возвращает число раскрытых операций.
+func (s *Service) EpayRevealInvoice(invoiceID string) int {
+	now := time.Now()
+	revealed := 0
+
+	for _, rec := range s.repo.List() {
+		if rec.Bank != bank.Epay || rec.EpayInvoiceID != invoiceID || !rec.EpayHidden(now) {
+			continue
+		}
+
+		if _, err := s.EpayReveal(rec.PaymentID); err == nil {
+			revealed++
+		}
+	}
+
+	return revealed
+}
+
+// EpayReveal делает операцию видимой в check-status немедленно.
+func (s *Service) EpayReveal(paymentID uint) (*pay.Record, error) {
+	return s.repo.Update(paymentID, func(r *pay.Record) (pay.Status, string, error) {
+		if r.Bank != bank.Epay {
+			return "", "", ErrInvalidState
+		}
+
+		r.EpayVisibleAt = time.Time{}
+
+		return "", "", nil
+	})
+}
+
 func (s *Service) newEpayRecord(in EpayAuthorizeInput) (*pay.Record, error) {
+	rec, err := s.buildEpayRecord(in)
+	if err != nil {
+		return nil, err
+	}
+
+	s.repo.Create(rec)
+
+	return rec, nil
+}
+
+func (s *Service) buildEpayRecord(in EpayAuthorizeInput) (*pay.Record, error) {
 	// Привязка карты идёт нулевой суммой: карта только проверяется, средства не списываются.
 	bindOnly := in.CardSave || in.PaymentType == "cardVerification"
 	if in.Amount < 0 || (in.Amount == 0 && !bindOnly) {
@@ -111,7 +180,6 @@ func (s *Service) newEpayRecord(in EpayAuthorizeInput) (*pay.Record, error) {
 		Status:                 pay.StatusNew,
 	}
 	rec.EpayID = fmt.Sprintf("mock-epay-%d", rec.PaymentID)
-	s.repo.Create(rec)
 
 	return rec, nil
 }

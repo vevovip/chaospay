@@ -51,6 +51,7 @@ func (c *Controller) Register(mux *http.ServeMux) {
 	mux.HandleFunc("POST /panel/cards/action", c.handleCardsAction)
 	mux.HandleFunc("POST /panel/cards/webhook", c.handleCardsWebhook)
 	mux.HandleFunc("POST /panel/cards/reset", c.handleCardsReset)
+	mux.HandleFunc("POST /panel/payments/{invoiceID}/reveal", c.handleEpayReveal)
 
 	// Scenarios actions
 	mux.HandleFunc("POST /panel/scenarios/add", c.handleScenarioAdd)
@@ -233,6 +234,11 @@ func (c *Controller) applyCardAction(paymentID uint, action string) {
 		target = domainpay.StatusRefunded
 	case "force_failed":
 		target = domainpay.StatusFailed
+	case "reveal":
+		if _, err := c.pay.EpayReveal(paymentID); err != nil {
+			log.Printf("[panel] reveal payment %d failed: %v", paymentID, err)
+		}
+		return
 	case "send_card_webhook":
 		// Для Flitt bind-flow используем отдельный bind-callback.
 		if rec, err := c.pay.Repo().Get(paymentID); err == nil && rec.Bank == bank.Flitt {
@@ -401,8 +407,26 @@ func (c *Controller) handleScenarioPreset(w http.ResponseWriter, r *http.Request
 		renderError(w, err.Error())
 		return
 	}
-	c.scenarios.ApplyPreset(r.FormValue("preset"))
+	overrides := make(map[string]string, len(r.PostForm))
+	for k := range r.PostForm {
+		overrides[k] = r.PostForm.Get(k)
+	}
+	if err := c.scenarios.ApplyPresetWithParams(r.FormValue("preset"), overrides); err != nil {
+		renderError(w, err.Error())
+		return
+	}
 	http.Redirect(w, r, scenariosRedirectURL(r), http.StatusSeeOther)
+}
+
+// handleEpayReveal — POST /panel/payments/{invoiceID}/reveal: скрытые операции инвойса
+// (пресеты epay_late_*) сразу становятся видны в check-status, без ожидания visible_after.
+func (c *Controller) handleEpayReveal(w http.ResponseWriter, r *http.Request) {
+	invoiceID := r.PathValue("invoiceID")
+	if c.pay.EpayRevealInvoice(invoiceID) == 0 {
+		http.Error(w, "no hidden epay operation for invoice "+invoiceID, http.StatusNotFound)
+		return
+	}
+	http.Redirect(w, r, "/panel?bank=epay&tab=cards", http.StatusSeeOther)
 }
 
 // ----- Log actions -----

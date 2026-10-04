@@ -319,6 +319,17 @@ curl -X POST http://localhost:48532/panel/scenarios/add \
 
 Второй путь нужен для восстановления платежа при потерянном постлинке (`epay_postlink_lost`).
 
+## Поздняя операция после 500 (умный автовозврат)
+
+| Preset | Что делает мок | Ожидаемое поведение PG |
+|---|---|---|
+| `epay_late_auth_postlink_lost` | `cryptopay` → 500 как у `epay_cryptopay_500`, но холд (`AUTH`) заведён; постлинка нет | закрыть попытку, найти операцию по инвойсу, сделать `cancel` |
+| `epay_late_charge_postlink_lost` | то же, но операция сразу списана (`CHARGE`) | найти операцию по инвойсу, сделать `refund` |
+
+Параметр `visible_after` (секунды, по умолчанию 0) — сколько операция не видна в состоянии операции: оба пути check-status отвечают `400 {"message":"operation not found"}`, как для несуществующей. Задаётся полем у кнопки пресета или формой: `POST /panel/scenarios/preset -d preset=epay_late_auth_postlink_lost -d visible_after=600`.
+
+Показать операцию сразу: `POST /panel/payments/{invoiceId}/reveal` (303 — раскрыто, 404 — скрытых операций у инвойса нет) или кнопка «Показать в статусе» на вкладке Cards. Cancel и refund по поздней операции работают как обычно.
+
 ---
 
 ## Verify-чеклист

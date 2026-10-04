@@ -119,6 +119,8 @@ type Record struct {
 	EpayPaymentType        string // "cardId" / "applePay" — из cryptopay/auth запроса
 	EpayDeclineCode        int
 	EpayDeclineReason      string
+	// EpayVisibleAt — с этого момента операция видна в check-status. Нулевое значение — видна всегда.
+	EpayVisibleAt time.Time
 
 	// Flitt specific. Для прочих банков — пусты.
 	FlittPaymentID    int64  // payment_id Flitt (числовой, в формате 1.7e9)
@@ -146,6 +148,11 @@ type Record struct {
 	CreatedAt    time.Time
 	AuthorizedAt time.Time
 	CapturedAt   time.Time
+}
+
+// EpayHidden — банк уже провёл операцию, но в check-status её ещё не показывает.
+func (r *Record) EpayHidden(now time.Time) bool {
+	return !r.EpayVisibleAt.IsZero() && now.Before(r.EpayVisibleAt)
 }
 
 // RefundOp — одна операция возврата. Amount хранится минусом, как отдаёт Freedom.

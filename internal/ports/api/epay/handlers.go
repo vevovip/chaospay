@@ -46,6 +46,10 @@ func (c *Controller) handleCryptopay(r *http.Request, body []byte, sc *scenario.
 		return c.decline(sc, input, entry)
 	}
 
+	if isLateOperation(sc) {
+		return c.lateOperation(sc, input, entry)
+	}
+
 	updated, err := c.svc.EpayAuthorize(input)
 	if err != nil {
 		return 0, nil, err
@@ -68,6 +72,34 @@ func (c *Controller) handleCryptopay(r *http.Request, body []byte, sc *scenario.
 
 func isDecline(sc *scenario.Scenario) bool {
 	return sc != nil && sc.Action == scenario.ActionForceFailure
+}
+
+func isLateOperation(sc *scenario.Scenario) bool {
+	return sc != nil && sc.Action == scenario.ActionEpayLateOperation
+}
+
+// lateOperation заводит операцию без постлинка: ответ на cryptopay потеряется (см. jsonEndpoint),
+// а в check-status операция появится через visible_after секунд.
+func (c *Controller) lateOperation(sc *scenario.Scenario, in apppay.EpayAuthorizeInput, entry *requestlog.Entry) (int, any, error) {
+	delay, err := scenario.ParamNonNegativeInt(sc, "visible_after", 0)
+	if err != nil {
+		return 0, nil, err
+	}
+
+	var visibleAt time.Time
+	if delay > 0 {
+		visibleAt = time.Now().Add(time.Duration(delay) * time.Second)
+	}
+
+	captured := scenario.Param(sc, "status", "AUTH") == "CHARGE"
+
+	rec, err := c.svc.EpayLateOperation(in, captured, visibleAt)
+	if err != nil {
+		return 0, nil, err
+	}
+	entry.PaymentID = strconv.FormatUint(uint64(rec.PaymentID), 10)
+
+	return http.StatusOK, buildAuthorizeResponse(rec, nil, c.cfg.ACSURL), nil
 }
 
 func (c *Controller) decline(sc *scenario.Scenario, in apppay.EpayAuthorizeInput, entry *requestlog.Entry) (int, any, error) {
@@ -244,6 +276,10 @@ func (c *Controller) handleStatus(r *http.Request, _ []byte, _ *scenario.Scenari
 		return 0, nil, err
 	}
 
+	if rec.EpayHidden(time.Now()) {
+		return 0, nil, errors.New("operation not found")
+	}
+
 	return http.StatusOK, statusResponseOf(rec), nil
 }
 
@@ -284,12 +320,14 @@ func (c *Controller) handleStatusByInvoice(r *http.Request, _ []byte, _ *scenari
 }
 
 // paymentByInvoice ищет операцию по инвойсу. Записей с одним инвойсом может быть
-// несколько (повторные попытки оплаты), поэтому берём последнюю.
+// несколько (повторные попытки оплаты), поэтому берём последнюю из тех, что банк уже показывает.
 func (c *Controller) paymentByInvoice(invoiceID string) (*pay.Record, bool) {
 	var found *pay.Record
 
+	now := time.Now()
+
 	for _, rec := range c.svc.Repo().List() {
-		if rec.Bank != domainbank.Epay || rec.EpayInvoiceID != invoiceID {
+		if rec.Bank != domainbank.Epay || rec.EpayInvoiceID != invoiceID || rec.EpayHidden(now) {
 			continue
 		}
 

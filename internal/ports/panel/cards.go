@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
+	"time"
 
 	"github.com/vevovip/chaospay/internal/domain/bank"
 	domainpay "github.com/vevovip/chaospay/internal/domain/pay"
@@ -156,7 +157,12 @@ func renderCardRow(w http.ResponseWriter, rec *domainpay.Record, b bank.Bank) {
 	fmt.Fprintf(w, `<td>%d</td>`, rec.OrderID)
 	fmt.Fprintf(w, `<td><span class="badge badge-NEW">%s</span></td>`, rec.Kind)
 	fmt.Fprintf(w, `<td>%d</td>`, rec.TerminalID)
-	fmt.Fprintf(w, `<td><span class="badge badge-%s">%s</span></td>`, rec.Status, rec.Status)
+	hidden := rec.EpayHidden(time.Now())
+	hiddenNote := ""
+	if hidden {
+		hiddenNote = `<br><span class="muted">скрыта до ` + rec.EpayVisibleAt.Format("15:04:05") + `</span>`
+	}
+	fmt.Fprintf(w, `<td><span class="badge badge-%s">%s</span>%s</td>`, rec.Status, rec.Status, hiddenNote)
 	fmt.Fprintf(w, `<td><span class="money">%d %s</span></td>`, rec.Amount, rec.Currency)
 	fmt.Fprintf(w, `<td><span class="nowrap">%d / %d</span></td>`, rec.Captured, rec.Refunded)
 	fmt.Fprintf(w, `<td><span class="muted">%s</span><br>%s</td>`, rec.CardBrand, rec.CardPAN)
@@ -171,6 +177,9 @@ func renderCardRow(w http.ResponseWriter, rec *domainpay.Record, b bank.Bank) {
 
 	fmt.Fprint(w, `<td><div class="actions">`)
 	pid := strconv.FormatUint(uint64(rec.PaymentID), 10)
+	if hidden {
+		actionButton(w, pid, "reveal", "btn-primary", "Показать в статусе", b)
+	}
 	if rec.Kind == domainpay.KindBind || rec.Kind == domainpay.KindEpayBind || rec.Kind == domainpay.KindFlittBind {
 		actionButton(w, pid, "send_card_webhook", "btn-purple", "Send Card-Bind Webhook", b)
 	} else {

@@ -122,3 +122,13 @@ func TestParamInt_InvalidFallsBackToDefault(t *testing.T) {
 		t.Errorf("ParamInt with non-numeric should return default")
 	}
 }
+
+func TestAllActions_ExcludesPresetOnly(t *testing.T) {
+	t.Parallel()
+
+	for _, a := range AllActions {
+		if a == ActionEpayLateOperation {
+			t.Fatalf("%s задаётся только пресетом epay_late_*: в ручной форме нет его параметров", a)
+		}
+	}
+}

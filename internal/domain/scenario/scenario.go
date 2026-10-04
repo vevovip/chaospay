@@ -53,6 +53,10 @@ const (
 	ActionTransientFailure  Action = "transient_failure"  // первый запрос — http_status (по умолч. 500), последующие — нормальный ответ
 	ActionForceUnauthorized Action = "force_unauthorized" // 401 {message:"Unauthorized"} (как при истёкшем токене)
 	ActionForceForbidden    Action = "force_forbidden"    // 403 {message:"Forbidden"} (IP-whitelist в продaкшне)
+	// ActionEpayLateOperation — на cryptopay банк отвечает ошибкой (http_status, по умолч. 500),
+	// но операцию заводит: status=AUTH|CHARGE, видна в check-status через visible_after секунд,
+	// постлинк по ней не уходит.
+	ActionEpayLateOperation Action = "epay_late_operation"
 )
 
 // AllActions — для UI dropdown.

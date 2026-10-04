@@ -213,8 +213,8 @@ func renderPresetGroup(w http.ResponseWriter, group string, b bank.Bank) {
 <form method="POST" action="/panel/scenarios/preset">
 <input type="hidden" name="preset" value="%s">
 <input type="hidden" name="bank" value="%s">
-<button class="btn %s" type="submit" title="%s">%s</button>
-</form>`, html.EscapeString(p.Description), html.EscapeString(p.Name), b, btnClass, html.EscapeString(p.Description), html.EscapeString(p.Title))
+%s<button class="btn %s" type="submit" title="%s">%s</button>
+</form>`, html.EscapeString(p.Description), html.EscapeString(p.Name), b, presetParamInputs(p.Params), btnClass, html.EscapeString(p.Description), html.EscapeString(p.Title))
 		if p.Sample != "" {
 			fmt.Fprintf(w, `<details class="preset-details"><summary title="Что отдаст банк / увидит PG" aria-label="Что отдаст банк / увидит PG"><span>i</span></summary><pre>%s</pre></details>`, html.EscapeString(p.Sample))
 		}
@@ -223,6 +223,16 @@ func renderPresetGroup(w http.ResponseWriter, group string, b bank.Bank) {
 	if empty {
 		fmt.Fprint(w, `<p class="muted">Нет пресетов.</p>`)
 	}
+}
+
+// presetParamInputs рендерит поля параметров preset-а (например visible_after).
+func presetParamInputs(params []appscenario.PresetParam) string {
+	var b strings.Builder
+	for _, p := range params {
+		fmt.Fprintf(&b, `<input type="text" name="%s" value="%s" title="%s" placeholder="%s" style="width:110px">
+`, html.EscapeString(p.Key), html.EscapeString(p.Default), html.EscapeString(p.Label), html.EscapeString(p.Label))
+	}
+	return b.String()
 }
 
 func presetGroupCount(group string, b bank.Bank) int {

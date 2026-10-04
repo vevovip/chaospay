@@ -2,6 +2,7 @@
 package scenario
 
 import (
+	"fmt"
 	"time"
 
 	"github.com/vevovip/chaospay/internal/domain/bank"
@@ -55,6 +56,16 @@ type PresetInfo struct {
 	// чтобы можно было сразу понять, что увидит PG и его клиенты.
 	// Формат свободный: XML для Freedom Pay, JSON для wallet, текст лога для transport-уровневых.
 	Sample string
+	// Params — параметры сценария, которые можно задать при включении preset-а (поля формы в UI).
+	Params []PresetParam
+}
+
+// PresetParam — параметр preset-а, который переопределяет значение по умолчанию.
+type PresetParam struct {
+	Key      string
+	Label    string
+	Default  string
+	Validate func(key, value string) error
 }
 
 // PresetsFor возвращает пресеты, относящиеся к выбранному банку.
@@ -71,6 +82,19 @@ func PresetsFor(b bank.Bank) []PresetInfo {
 	}
 	return out
 }
+
+// lateOperationParams — задержка, после которой поздняя операция видна в check-status.
+var lateOperationParams = []PresetParam{{Key: "visible_after", Label: "visible_after, с", Default: "0", Validate: validateNonNegativeInt}}
+
+func validateNonNegativeInt(key, value string) error {
+	_, err := scenario.ParseNonNegativeInt(key, value)
+
+	return err
+}
+
+const lateSampleTail = `
+# PG: опрос по инвойсу находит операцию и сам возвращает деньги.
+# Показать сразу: POST /panel/payments/{invoiceId}/reveal`
 
 // AllPresets — список всех доступных preset-ов для рендера в panel.
 // Бизнес-пресеты используют РЕАЛЬНЫЕ Freedom error codes из PG-маппинга
@@ -603,6 +627,32 @@ context deadline exceeded`,
 # PG retryablehttp ретрайт 3×, потом giving up`,
 	},
 	{
+		Name: "epay_late_auth_postlink_lost", Bank: bank.Epay, Title: "🕳 Epay: холд после 500, постлинк потерян",
+		Description: "Cryptopay отвечает 500, но банк ставит холд (AUTH). В статусе по инвойсу операция появится через visible_after секунд, постлинка не будет — PG должен найти её и отменить холд.",
+		Sample: `# Шаг 1: POST /api/payment/cryptopay → 500 Internal Server Error (операция заведена)
+# Шаг 2: GET /check-status/payment/transaction/{invoiceId}, пока операция скрыта → 400
+{"message":"operation not found"}
+
+# Шаг 3: после visible_after → 200
+{"id":"mock-epay-7","invoiceId":"000123","status":"AUTH","statusName":"Авторизован",...}
+
+# Шаг 4: POST /api/operation/{id}/cancel → 200, статус → CANCEL` + lateSampleTail,
+		Params: lateOperationParams,
+	},
+	{
+		Name: "epay_late_charge_postlink_lost", Bank: bank.Epay, Title: "🕳 Epay: списание после 500, постлинк потерян",
+		Description: "Cryptopay отвечает 500, но банк списывает деньги (CHARGE). В статусе по инвойсу операция появится через visible_after секунд, постлинка не будет — PG должен найти её и сделать возврат.",
+		Sample: `# Шаг 1: POST /api/payment/cryptopay → 500 Internal Server Error (операция заведена и списана)
+# Шаг 2: GET /check-status/payment/transaction/{invoiceId}, пока операция скрыта → 400
+{"message":"operation not found"}
+
+# Шаг 3: после visible_after → 200
+{"id":"mock-epay-7","invoiceId":"000123","status":"CHARGE","statusName":"Списан",...}
+
+# Шаг 4: POST /api/operation/{id}/refund → 200, статус → REFUND` + lateSampleTail,
+		Params: lateOperationParams,
+	},
+	{
 		Name: "epay_postlink_lost", Bank: bank.Epay, Title: "📭 Epay: Postlink lost",
 		Description: "Charge успешен, но мок НЕ шлёт postlink. PG ждёт callback вечно (reconciler найдёт).",
 		Sample: `# Шаг 1: charge → 200 {code:0}
@@ -851,9 +901,30 @@ Content-Type: application/json
 }
 
 // ApplyPreset — добавляет сценарии по имени preset-а. См. AllPresets для списка.
-func (s *Service) ApplyPreset(name string) { //nolint:gocyclo,funlen
+func (s *Service) ApplyPreset(name string) {
+	_ = s.ApplyPresetWithParams(name, nil)
+}
+
+// ApplyPresetWithParams — то же, что ApplyPreset, но поверх параметров preset-а кладёт
+// overrides (только ключи из PresetInfo.Params этого preset-а, пустые значения пропускаются).
+// Невалидный override — ошибка, сценарии не добавляются.
+func (s *Service) ApplyPresetWithParams(name string, overrides map[string]string) error { //nolint:gocyclo,funlen
 	wild := scenario.Wildcard
+	allowed, err := presetOverrides(name, overrides)
+	if err != nil {
+		return err
+	}
 	addFor := func(b bank.Bank, endpoint string, action scenario.Action, params map[string]string, consumeOnce bool) {
+		if len(allowed) > 0 {
+			merged := make(map[string]string, len(params)+len(allowed))
+			for k, v := range params {
+				merged[k] = v
+			}
+			for k, v := range allowed {
+				merged[k] = v
+			}
+			params = merged
+		}
 		s.store.Add(&scenario.Scenario{
 			Bank: b, Endpoint: endpoint, PaymentID: wild, OrderID: wild, MerchantID: wild,
 			Action: action, Params: params, ConsumeOnce: consumeOnce, CreatedAt: time.Now(),
@@ -1030,6 +1101,12 @@ func (s *Service) ApplyPreset(name string) { //nolint:gocyclo,funlen
 		addEpay(scenario.EndpointEpayCharge, scenario.ActionTimeout, map[string]string{"seconds": "20"}, true)
 	case "epay_cryptopay_500":
 		addEpay(scenario.EndpointEpayCryptopay, scenario.ActionHTTPError, map[string]string{"http_status": "500"}, true)
+	case "epay_late_auth_postlink_lost":
+		addEpay(scenario.EndpointEpayCryptopay, scenario.ActionEpayLateOperation,
+			map[string]string{"http_status": "500", "status": "AUTH", "visible_after": "0"}, true)
+	case "epay_late_charge_postlink_lost":
+		addEpay(scenario.EndpointEpayCryptopay, scenario.ActionEpayLateOperation,
+			map[string]string{"http_status": "500", "status": "CHARGE", "visible_after": "0"}, true)
 	case "epay_postlink_lost":
 		addEpay(scenario.EndpointEpayCharge, scenario.ActionPostlinkLost, nil, true)
 	case "epay_postlink_double":
@@ -1151,4 +1228,38 @@ func (s *Service) ApplyPreset(name string) { //nolint:gocyclo,funlen
 		addFlitt(scenario.EndpointFlittStatus, scenario.ActionMissingField,
 			map[string]string{"field": "signature"}, true)
 	}
+
+	return nil
+}
+
+// presetOverrides оставляет из overrides только параметры, объявленные у preset-а.
+func presetOverrides(name string, overrides map[string]string) (map[string]string, error) {
+	if len(overrides) == 0 {
+		return nil, nil
+	}
+
+	out := map[string]string{}
+
+	for _, p := range AllPresets {
+		if p.Name != name {
+			continue
+		}
+
+		for _, param := range p.Params {
+			v := overrides[param.Key]
+			if v == "" {
+				continue
+			}
+
+			if param.Validate != nil {
+				if err := param.Validate(param.Key, v); err != nil {
+					return nil, fmt.Errorf("%w, preset %s", err, name)
+				}
+			}
+
+			out[param.Key] = v
+		}
+	}
+
+	return out, nil
 }

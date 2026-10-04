@@ -223,6 +223,26 @@ func (c *Controller) jsonEndpoint(endpoint string, fn jsonHandler) http.HandlerF
 			return
 		}
 
+		// Поздняя операция: банк операцию завёл, а мерчанту ответил ошибкой — ответ ровно
+		// такой же, как у http_error, чтобы PG не отличил его от обычного сбоя банка.
+		if endpoint == scenario.EndpointEpayCryptopay && sc != nil && sc.Action == scenario.ActionEpayLateOperation {
+			entry.ScenarioHit = sc.ID
+			entry.ScenarioName = string(sc.Action)
+
+			if _, _, errLate := fn(r, bodyBytes, sc, entry); errLate != nil {
+				c.respondError(w, entry, started, http.StatusBadRequest, errLate.Error())
+
+				return
+			}
+
+			scenarioapply.Transport(w, &scenario.Scenario{
+				Action: scenario.ActionHTTPError,
+				Params: map[string]string{"http_status": scenario.Param(sc, "http_status", "500")},
+			}, entry, started, c.log)
+
+			return
+		}
+
 		if sc != nil {
 			entry.ScenarioHit = sc.ID
 			entry.ScenarioName = string(sc.Action)
