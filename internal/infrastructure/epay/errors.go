@@ -24,6 +24,12 @@ const (
 	ErrDefault                 ErrorClass = "default"                 // нераспознанный код
 )
 
+// Отказ проверки 3D-Secure: так Halyk отвечает на confirm, когда плательщик не прошёл проверку.
+const (
+	ReasonSecure3DFailed  = 455
+	MessageSecure3DFailed = "3D Secure verification failed"
+)
+
 // ErrorInfo — описание ошибки для тестов и UI пресетов.
 type ErrorInfo struct {
 	Code    int        // reasonCode из real Halyk

@@ -596,7 +596,7 @@ Content-Type: application/json
 		Name: "epay_3ds_confirm_declined", Bank: bank.Epay, Title: "🔐 Epay: 3DS declined",
 		Description: "Проверка 3DS пройдена неуспешно: confirm отвечает отказом, статус операции остаётся FAILED",
 		Sample: `# Шаг 1: cryptopay → secure3D (пресет epay_3ds_required)
-# Шаг 2: POST /api/payment/confirm → {"code":484,"message":"3DS verification failed"}
+# Шаг 2: POST /api/payment/confirm → {"code":455,"message":"3D Secure verification failed"}
 # Шаг 3: PG спрашивает состояние операции → FAILED → заказ в неуспешные.`,
 	},
 	{
@@ -1091,7 +1091,7 @@ func (s *Service) ApplyPresetWithParams(name string, overrides map[string]string
 	case "epay_3ds_confirm_declined":
 		addEpay(scenario.EndpointEpayCryptopay, scenario.ActionForce3DS, nil, true)
 		addEpay(scenario.EndpointEpayConfirm, scenario.ActionForceFailure,
-			map[string]string{"error_code": "484", "message": "3DS verification failed"}, true)
+			map[string]string{"error_code": "455", "message": "3D Secure verification failed"}, true)
 	case "epay_3ds_confirm_timeout":
 		addEpay(scenario.EndpointEpayCryptopay, scenario.ActionForce3DS, nil, true)
 		addEpay(scenario.EndpointEpayConfirm, scenario.ActionTimeout, map[string]string{"seconds": "20"}, true)

@@ -101,6 +101,14 @@ func TestConfirm_DeclinedMovesOperationToFailed(t *testing.T) {
 		t.Errorf("confirm status = %d, want 400", resp.StatusCode)
 	}
 
+	var body infraepay.ErrorResponse
+	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+		t.Fatalf("decode confirm body: %v", err)
+	}
+	if body.Code != infraepay.ReasonSecure3DFailed {
+		t.Errorf("confirm code = %d, want %d (Halyk: 3DS не пройден)", body.Code, infraepay.ReasonSecure3DFailed)
+	}
+
 	if status := statusOf(t, st, epayID); status != "FAILED" {
 		t.Errorf("status после отказа = %s, want FAILED", status)
 	}

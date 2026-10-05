@@ -149,11 +149,11 @@ func (c *Controller) handleConfirm(r *http.Request, body []byte, sc *scenario.Sc
 			return 0, nil, failErr
 		}
 
-		code := scenario.ParamInt(sc, "error_code", 484)
+		code := scenario.ParamInt(sc, "error_code", infraepay.ReasonSecure3DFailed)
 
 		return http.StatusBadRequest, infraepay.ErrorResponse{
 			Code:       code,
-			Message:    scenario.Param(sc, "message", "3DS verification failed"),
+			Message:    scenario.Param(sc, "message", infraepay.MessageSecure3DFailed),
 			ResultCode: code,
 		}, nil
 	}
