@@ -23,8 +23,13 @@ const (
 	payLinkBase = "https://pay.kaspi.kz/pay/"
 )
 
-// paymentMethods — методы оплаты, которые Kaspi обычно возвращает в create-link.
-var paymentMethods = []string{"Gold", "Red", "Loan"}
+var (
+	// paymentMethods — методы оплаты, которые Kaspi обычно возвращает в create-link.
+	paymentMethods = []string{"Gold", "Red", "Loan"}
+	// statusVersions — версии метода статуса: клиенты переходят на новую версию не одновременно,
+	// контракт ответа у них общий.
+	statusVersions = []string{"v01", "v04"}
+)
 
 // Controller — HTTP-контроллер мока KaspiPay.
 type Controller struct {
@@ -41,7 +46,9 @@ func NewController(svc *appkaspi.Service, globalDelaySeconds int) *Controller {
 func (c *Controller) Register(mux *http.ServeMux) {
 	for _, p := range []string{"/r3", ""} {
 		mux.HandleFunc("POST "+p+"/v01/qr/create-link", c.handleCreateLink)
-		mux.HandleFunc("GET "+p+"/v01/payment/status/{ref}", c.handleStatus)
+		for _, version := range statusVersions {
+			mux.HandleFunc("GET "+p+"/"+version+"/payment/status/{ref}", c.handleStatus)
+		}
 		mux.HandleFunc("POST "+p+"/v01/test/payment/confirm", c.handleTestConfirm)
 		mux.HandleFunc("POST "+p+"/v01/test/payment/scanerror", c.handleTestDecline)
 	}

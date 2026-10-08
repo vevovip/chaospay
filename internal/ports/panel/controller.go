@@ -62,6 +62,7 @@ func (c *Controller) Register(mux *http.ServeMux) {
 	// Log actions
 	mux.HandleFunc("POST /panel/log/reset", c.handleLogReset)
 	mux.HandleFunc("GET /panel/log/{id}", c.handleLogDetail)
+	mux.HandleFunc("GET /panel/log.json", c.handleLogJSON)
 
 	// QR actions (legacy /qr-panel/* paths сохранены)
 	mux.HandleFunc("POST /qr-panel/action", c.handleQRAction)

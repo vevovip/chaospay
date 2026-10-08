@@ -1,14 +1,38 @@
 package panel
 
 import (
+	"encoding/json"
 	"fmt"
 	"net/http"
+	"time"
 
 	"github.com/vevovip/chaospay/internal/domain/bank"
 	"github.com/vevovip/chaospay/internal/domain/requestlog"
 )
 
-func (c *Controller) renderLogTab(w http.ResponseWriter, b bank.Bank) {
+const (
+	logQueryBank      = "bank"
+	logQueryPaymentID = "payment_id"
+	logQueryOrderID   = "order_id"
+	logQueryEndpoint  = "endpoint"
+)
+
+// logEntryJSON — запись журнала для автотестов: кто и в какой кабинет обращался, без тел запросов.
+type logEntryJSON struct {
+	ID          uint64    `json:"id"`
+	At          time.Time `json:"at"`
+	Bank        bank.Bank `json:"bank"`
+	Method      string    `json:"method"`
+	Endpoint    string    `json:"endpoint"`
+	PaymentID   string    `json:"payment_id"`
+	OrderID     string    `json:"order_id"`
+	MerchantID  string    `json:"merchant_id"`
+	SignatureOK bool      `json:"signature_ok"`
+	StatusCode  int       `json:"status_code"`
+}
+
+// entriesByBank — записи журнала банка, новые первыми. Банк старых записей определяется по URL.
+func (c *Controller) entriesByBank(b bank.Bank) []*requestlog.Entry {
 	all := c.log.List()
 	entries := make([]*requestlog.Entry, 0, len(all))
 	for _, e := range all {
@@ -20,6 +44,59 @@ func (c *Controller) renderLogTab(w http.ResponseWriter, b bank.Bank) {
 			entries = append(entries, e)
 		}
 	}
+
+	return entries
+}
+
+// handleLogJSON отдаёт журнал запросов JSON-ом с фильтрами bank, payment_id, order_id, endpoint.
+func (c *Controller) handleLogJSON(w http.ResponseWriter, r *http.Request) {
+	query := r.URL.Query()
+	filters := map[string]func(*requestlog.Entry) string{
+		logQueryPaymentID: func(e *requestlog.Entry) string { return e.PaymentID },
+		logQueryOrderID:   func(e *requestlog.Entry) string { return e.OrderID },
+		logQueryEndpoint:  func(e *requestlog.Entry) string { return e.Endpoint },
+	}
+
+	out := make([]logEntryJSON, 0)
+	for _, e := range c.entriesByBank(parseBank(query.Get(logQueryBank))) {
+		if !matchesFilters(e, query, filters) {
+			continue
+		}
+
+		out = append(out, logEntryJSON{
+			ID:          e.ID,
+			At:          e.At,
+			Bank:        e.Bank,
+			Method:      e.Method,
+			Endpoint:    e.Endpoint,
+			PaymentID:   e.PaymentID,
+			OrderID:     e.OrderID,
+			MerchantID:  e.MerchantID,
+			SignatureOK: e.SignatureOK,
+			StatusCode:  e.StatusCode,
+		})
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(out)
+}
+
+func matchesFilters(e *requestlog.Entry, query map[string][]string, filters map[string]func(*requestlog.Entry) string) bool {
+	for name, field := range filters {
+		values := query[name]
+		if len(values) == 0 || values[0] == "" {
+			continue
+		}
+		if field(e) != values[0] {
+			return false
+		}
+	}
+
+	return true
+}
+
+func (c *Controller) renderLogTab(w http.ResponseWriter, b bank.Bank) {
+	entries := c.entriesByBank(b)
 
 	bankTitle := bank.Titles[b]
 	if bankTitle == "" {

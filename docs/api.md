@@ -202,3 +202,13 @@ POST-actions:
 - `/panel/scenarios/{add,delete,preset,reset}`
 - `/panel/log/reset`
 - `/qr-panel/{action,webhook}` — legacy совместимость
+
+Журнал для автотестов — `GET /panel/log.json`, новые записи первыми, без тел запросов. Фильтры
+необязательные: `bank`, `payment_id`, `order_id`, `endpoint`. Пример — в какой кабинет ушёл возврат:
+
+```bash
+curl -s 'http://localhost:48532/panel/log.json?bank=freedom&payment_id=1786203195' \
+  | jq '.[] | {endpoint, merchant_id, signature_ok}'
+```
+
+Kaspi отвечает на статус и по `/v01/payment/status/{id}`, и по `/v04/payment/status/{id}` — контракт общий.

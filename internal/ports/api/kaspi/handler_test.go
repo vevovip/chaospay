@@ -71,7 +71,13 @@ func createLink(t *testing.T, base, externalID string, amount float64) createLin
 func getStatus(t *testing.T, base string, paymentID int) statusResp {
 	t.Helper()
 
-	resp, err := http.Get(base + "/r3/v01/payment/status/" + strconv.Itoa(paymentID))
+	return getStatusVersion(t, base, "v01", paymentID)
+}
+
+func getStatusVersion(t *testing.T, base, version string, paymentID int) statusResp {
+	t.Helper()
+
+	resp, err := http.Get(base + "/r3/" + version + "/payment/status/" + strconv.Itoa(paymentID))
 	if err != nil {
 		t.Fatalf("status request: %v", err)
 	}
@@ -151,5 +157,28 @@ func TestStatusNotFound(t *testing.T) {
 	got := getStatus(t, srv.URL, 999999)
 	if got.StatusCode == 0 {
 		t.Fatalf("not-found status returned StatusCode 0, want non-zero")
+	}
+}
+
+func TestStatusVersionsShareContract(t *testing.T) {
+	t.Parallel()
+
+	srv := newServer()
+	defer srv.Close()
+
+	link := createLink(t, srv.URL, "4242", 300)
+	testAction(t, srv.URL, "confirm", link.Data.PaymentId)
+
+	for _, version := range []string{"v01", "v04"} {
+		t.Run(version, func(t *testing.T) {
+			got := getStatusVersion(t, srv.URL, version, link.Data.PaymentId)
+			if got.StatusCode != 0 || got.Data.Status != "Processed" {
+				t.Fatalf("%s status = %+v, want StatusCode 0 and Processed", version, got)
+			}
+		})
+	}
+
+	if got := getStatusVersion(t, srv.URL, "v04", 999999); got.StatusCode == 0 {
+		t.Fatalf("v04 not-found returned StatusCode 0, want non-zero")
 	}
 }
